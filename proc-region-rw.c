@@ -78,13 +78,15 @@ context_init(struct context *ctx, size_t argc, const char *argv[])
       ctx->op.has_len = true;
    }
 
-   if (wmname && !(ctx->op.wm.src = fopen(wmname, "rb")))
-      err(EXIT_FAILURE, "fopen(%s)", wmname);
+   if (wmname) {
+      if (!(ctx->op.wm.src = fopen(wmname, "rb")))
+         err(EXIT_FAILURE, "fopen(%s)", wmname);
 
-   if (fseek(ctx->op.wm.src, 0, SEEK_END) != 0)
-      err(EXIT_FAILURE, "fseek");
+      if (fseek(ctx->op.wm.src, 0, SEEK_END) != 0)
+         err(EXIT_FAILURE, "fseek");
 
-   ctx->op.wm.size = ftell(ctx->op.wm.src);
+      ctx->op.wm.size = ftell(ctx->op.wm.src);
+   }
 
    char path[128];
    snprintf(path, sizeof(path), "/proc/%u/mem", ctx->proc.pid);
@@ -142,8 +144,12 @@ region_cb(const char *line, void *data)
    }
 
    region_offset = (ctx->op.mode == MODE_MAP ? region_offset : 0);
-   const size_t rlen = (ctx->op.has_len ? ctx->op.len : ctx->op.wm.size); // requested write/read
-   const size_t len = (rlen > end - start ? end - start : rlen); // actual write/read
+
+   // requested write/read
+   const size_t rlen = (ctx->op.has_len ? ctx->op.len : (ctx->op.mode == MODE_READ ? end - start : ctx->op.wm.size));
+
+   // actual write/read
+   const size_t len = (rlen > end - start ? end - start : rlen);
 
    if (!len)
       return;
