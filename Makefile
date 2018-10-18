@@ -9,13 +9,15 @@ WARNINGS := -Wall -Wextra -Wpedantic -Wformat=2 -Wstrict-aliasing=3 -Wstrict-ove
 override CFLAGS ?= -g
 override CFLAGS += -std=c99 -D_DEFAULT_SOURCE $(WARNINGS)
 
-bins = proc-region-rw
+bins = proc-region-rw binsearch bintrim
 all: $(bins)
 
 $(bins): %:
 	$(LINK.c) $^ $(LDLIBS) -o $@
 
 proc-region-rw: proc-region-rw.c
+binsearch: binsearch.c
+bintrim: bintrim.c
 
 install-bin: $(bins)
 	install -Dm755 $^ -t "$(DESTDIR)$(PREFIX)$(bindir)"

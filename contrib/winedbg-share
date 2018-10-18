@@ -1,0 +1,10 @@
+#!/bin/sh
+# usage: winedbg-share wpid
+# Get windows process share information
+
+# --file doesn't work for some reason
+winedbg << EOF | sed 's/Wine-dbg>//g' | tail -n +3
+attach $1
+info share
+detach
+EOF

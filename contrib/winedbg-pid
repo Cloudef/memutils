@@ -1,0 +1,4 @@
+#!/bin/sh
+# usage: winedbg-pid process-name
+# Get windows process id with process name
+winedbg --command 'info process' | awk '/'"${@:-0xdeadbeef}"'/ { print strtonum("0x"$1) }'
