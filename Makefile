@@ -13,7 +13,7 @@ bins = proc-region-rw
 all: $(bins)
 
 $(bins): %:
-	$(LINK.c) $(filter %.c %.a,$^) $(LDLIBS) -o $@
+	$(LINK.c) $^ $(LDLIBS) -o $@
 
 proc-region-rw: proc-region-rw.c
 
