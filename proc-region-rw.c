@@ -11,13 +11,15 @@ struct context {
 
    struct {
       size_t offset, len;
-      bool with_offset_and_len;
+      bool has_offset, has_len;
 
       struct {
          FILE *src;
-      } write;
+         size_t size;
+      } wm; // write/map
 
       enum {
+         MODE_MAP,
          MODE_WRITE,
          MODE_READ
       } mode;
@@ -32,44 +34,57 @@ struct context {
 static void
 usage(const char *argv0)
 {
-   fprintf(stderr, "usage: %s pid write file [offset len] < regions\n"
-                   "       %s pid read [offset len] < regions\n\n"
-                   "       regions must be in /proc/<pid>/maps format", argv0, argv0);
+   fprintf(stderr, "usage: %s pid map file [offset] [len] < regions\n"
+                   "       %s pid write file [offset] [len] < regions\n"
+                   "       %s pid read [offset] [len] < regions\n"
+                   "       regions must be in /proc/<pid>/maps format", argv0, argv0, argv0);
    exit(EXIT_FAILURE);
 }
 
 static void
-context_init(struct context *ctx, int argc, const char *argv[])
+context_init(struct context *ctx, size_t argc, const char *argv[])
 {
    if (argc < 3)
       usage(argv[0]);
 
+   size_t arg = 1;
    *ctx = (struct context){0};
-   ctx->proc.pid = strtoull(argv[1], NULL, 10);
+   ctx->proc.pid = strtoull(argv[arg++], NULL, 10);
 
    {
-      bool w, r;
-      const char *mode = argv[2];
-      if ((w = strcmp(mode, "write")) && (r = strcmp(mode, "read")))
+      bool w = false, r = false, m = false;
+      const char *mode = argv[arg++];
+      if (!(m = !strcmp(mode, "map")) && !(w = !strcmp(mode, "write")) && !(r = !strcmp(mode, "read")))
          err(EXIT_FAILURE, "mode must be write or read");
 
-      ctx->op.mode = (!w ? MODE_WRITE : MODE_READ);
+      ctx->op.mode = (m ? MODE_MAP : (w ? MODE_WRITE : MODE_READ));
    }
 
-   if (ctx->op.mode == MODE_WRITE && argc < 4)
-      usage(argv[0]);
-
-   if (argc > (ctx->op.mode == MODE_WRITE) + 3) {
-      if (argc < (ctx->op.mode == MODE_WRITE) + 5)
+   const char *wmname = NULL;
+   if (ctx->op.mode == MODE_MAP || ctx->op.mode == MODE_WRITE) {
+      if (argc < arg + 1)
          usage(argv[0]);
 
-      ctx->op.offset = strtoull(argv[(ctx->op.mode == MODE_WRITE) + 3], NULL, 10);
-      ctx->op.len = strtoull(argv[(ctx->op.mode == MODE_WRITE) + 4], NULL, 10);
-      ctx->op.with_offset_and_len = true;
+      wmname = argv[arg++];
    }
 
-   if (ctx->op.mode == MODE_WRITE && !(ctx->op.write.src = fopen(argv[3], "rb")))
-      err(EXIT_FAILURE, "fopen(%s)", argv[3]);
+   if (argc >= arg + 1) {
+      ctx->op.offset = strtoull(argv[arg++], NULL, 10);
+      ctx->op.has_offset = true;
+   }
+
+   if (argc >= arg + 1) {
+      ctx->op.len = strtoull(argv[arg++], NULL, 10);
+      ctx->op.has_len = true;
+   }
+
+   if (wmname && !(ctx->op.wm.src = fopen(wmname, "rb")))
+      err(EXIT_FAILURE, "fopen(%s)", wmname);
+
+   if (fseek(ctx->op.wm.src, 0, SEEK_END) != 0)
+      err(EXIT_FAILURE, "fseek");
+
+   ctx->op.wm.size = ftell(ctx->op.wm.src);
 
    char path[128];
    snprintf(path, sizeof(path), "/proc/%u/mem", ctx->proc.pid);
@@ -80,8 +95,8 @@ context_init(struct context *ctx, int argc, const char *argv[])
 static void
 context_release(struct context *ctx)
 {
-   if (ctx->op.write.src)
-      fclose(ctx->op.write.src);
+   if (ctx->op.wm.src)
+      fclose(ctx->op.wm.src);
 
    fclose(ctx->proc.mem);
    free(ctx->buf);
@@ -112,25 +127,23 @@ static void
 region_cb(const char *line, void *data)
 {
    struct context *ctx = data;
-   unsigned long start, end, offset;
-   if (sscanf(line, "%lx-%lx %*s %lx", &start, &end, &offset) < 3) {
+   unsigned long start, end, region_offset;
+   if (sscanf(line, "%lx-%lx %*s %lx", &start, &end, &region_offset) < 3) {
       warnx("failed to parse mapping:\n%s", line);
       return;
    }
 
    warnx("%s", line);
+   start += ctx->op.offset;
 
-   offset = (ctx->op.with_offset_and_len ? 0 : offset);
-   const size_t len = (ctx->op.with_offset_and_len ? ctx->op.len : end - start);
-   if (start + ctx->op.offset > end) {
-      warnx("write offset %lx is out of bounds", start + ctx->op.offset);
+   if (start > end) {
+      warnx("write offset %lx is out of bounds", start);
       return;
    }
 
-   if (len > (end - start - ctx->op.offset)) {
-      warnx("%zu bytes doesn't fit in the region", len);
-      return;
-   }
+   region_offset = (ctx->op.mode == MODE_MAP ? region_offset : 0);
+   const size_t rlen = (ctx->op.has_len ? ctx->op.len : ctx->op.wm.size); // requested write/read
+   const size_t len = (rlen > end - start ? end - start : rlen); // actual write/read
 
    if (!len)
       return;
@@ -139,24 +152,37 @@ region_cb(const char *line, void *data)
       err(EXIT_FAILURE, "realloc");
 
    clearerr(ctx->proc.mem);
-   if (ctx->op.mode == MODE_WRITE) {
-      if (fseek(ctx->op.write.src, offset, SEEK_SET) != 0)
+   if (ctx->op.mode == MODE_MAP || ctx->op.mode == MODE_WRITE) {
+      if (fseek(ctx->op.wm.src, region_offset, SEEK_SET) != 0)
          err(EXIT_FAILURE, "fseek");
 
-      const size_t rd = fread(ctx->buf, 1, len, ctx->op.write.src);
+      const size_t rd = fread(ctx->buf, 1, len, ctx->op.wm.src);
 
-      if (fseek(ctx->proc.mem, start + ctx->op.offset, SEEK_SET) != 0)
+      if (fseek(ctx->proc.mem, start, SEEK_SET) != 0)
          err(EXIT_FAILURE, "fseek");
 
       const size_t wd = fwrite(ctx->buf, 1, rd, ctx->proc.mem);
 
       if (ferror(ctx->proc.mem)) {
          warn("fread(/proc/%u/mem)", ctx->proc.pid);
+         return;
+      }
+
+      if (ctx->op.mode == MODE_WRITE) {
+         if (rlen > wd) {
+            warnx("wrote %lu bytes (%lu bytes truncated) to offset 0x%lx", wd, rlen - wd, start);
+         } else {
+            warnx("wrote %lu bytes to offset 0x%lx", wd, start);
+         }
       } else {
-         warnx("wrote %lu bytes from offset 0x%lx to offset 0x%lx", wd, offset, start + ctx->op.offset);
+         if (rlen > wd) {
+            warnx("mapped %lu bytes (%lu bytes truncated) from offset 0x%lx to offset 0x%lx", wd, rlen - wd, region_offset, start);
+         } else {
+            warnx("mapped %lu bytes from offset 0x%lx to offset 0x%lx", wd, region_offset, start);
+         }
       }
    } else {
-      if (fseek(ctx->proc.mem, start + ctx->op.offset, SEEK_SET) != 0)
+      if (fseek(ctx->proc.mem, start, SEEK_SET) != 0)
          err(EXIT_FAILURE, "fseek");
 
       const size_t rd = fread(ctx->buf, 1, len, ctx->proc.mem);
