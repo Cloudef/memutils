@@ -55,7 +55,7 @@ context_init(struct context *ctx, size_t argc, const char *argv[])
       bool w = false, r = false, m = false;
       const char *mode = argv[arg++];
       if (!(m = !strcmp(mode, "map")) && !(w = !strcmp(mode, "write")) && !(r = !strcmp(mode, "read")))
-         err(EXIT_FAILURE, "mode must be write or read");
+         errx(EXIT_FAILURE, "mode must be write or read");
 
       ctx->op.mode = (m ? MODE_MAP : (w ? MODE_WRITE : MODE_READ));
    }
