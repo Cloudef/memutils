@@ -7,17 +7,20 @@ WARNINGS := -Wall -Wextra -Wpedantic -Wformat=2 -Wstrict-aliasing=3 -Wstrict-ove
 	-Wfloat-equal -Wcast-align -Wpointer-arith -Wchar-subscripts -Warray-bounds=2
 
 override CFLAGS ?= -g
-override CFLAGS += -std=c99 -D_DEFAULT_SOURCE $(WARNINGS)
+override CFLAGS += -std=c99 $(WARNINGS)
+override CPPFLAGS += -Isrc
 
-bins = proc-region-rw binsearch bintrim
+bins = ptrace-region-rw uio-region-rw binsearch bintrim
 all: $(bins)
 
 $(bins): %:
 	$(LINK.c) $^ $(LDLIBS) -o $@
 
-proc-region-rw: proc-region-rw.c
-binsearch: binsearch.c
-bintrim: bintrim.c
+ptrace-region-rw: src/ptrace-region-rw.c src/cli/proc-region-rw.c src/io/io-ptrace.c
+uio-region-rw: private CPPFLAGS += -D_GNU_SOURCE
+uio-region-rw: src/uio-region-rw.c src/cli/proc-region-rw.c src/io/io-uio.c
+binsearch: src/binsearch.c
+bintrim: src/bintrim.c
 
 install-bin: $(bins)
 	install -Dm755 $^ -t "$(DESTDIR)$(PREFIX)$(bindir)"

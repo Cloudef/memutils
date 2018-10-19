@@ -1,12 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
-#include <sys/ptrace.h>
-#include <sys/wait.h>
 #include <err.h>
 
-// It's recommended to `setcap cap_sys_ptrace=eip proc-region-rw` to run this tool without sudo
+static void
+usage(const char *argv0)
+{
+   fprintf(stderr, "usage: %s pid map file [offset] [len] < regions\n"
+                   "       %s pid write file [offset] [len] < regions\n"
+                   "       %s pid read [offset] [len] < regions\n"
+                   "       regions must be in /proc/<pid>/maps format", argv0, argv0, argv0);
+   exit(EXIT_FAILURE);
+}
+
+#include "io/io.h"
 
 struct context {
    void *buf;
@@ -27,31 +34,14 @@ struct context {
       } mode;
    } op;
 
-   struct {
-      FILE *mem;
-      pid_t pid;
-   } proc;
+   struct io io;
 };
 
-static void
-usage(const char *argv0)
-{
-   fprintf(stderr, "usage: %s pid map file [offset] [len] < regions\n"
-                   "       %s pid write file [offset] [len] < regions\n"
-                   "       %s pid read [offset] [len] < regions\n"
-                   "       regions must be in /proc/<pid>/maps format", argv0, argv0, argv0);
-   exit(EXIT_FAILURE);
-}
-
-static void
+static inline void
 context_init(struct context *ctx, size_t argc, const char *argv[])
 {
-   if (argc < 3)
-      usage(argv[0]);
-
-   size_t arg = 1;
+   size_t arg = 0;
    *ctx = (struct context){0};
-   ctx->proc.pid = strtoull(argv[arg++], NULL, 10);
 
    {
       bool m = false, w = false, r = false;
@@ -89,11 +79,6 @@ context_init(struct context *ctx, size_t argc, const char *argv[])
 
       ctx->op.wm.size = ftell(ctx->op.wm.src);
    }
-
-   char path[128];
-   snprintf(path, sizeof(path), "/proc/%u/mem", ctx->proc.pid);
-   if (!(ctx->proc.mem = fopen(path, "w+b")))
-      err(EXIT_FAILURE, "fopen(%s)", path);
 }
 
 static void
@@ -102,29 +87,8 @@ context_release(struct context *ctx)
    if (ctx->op.wm.src)
       fclose(ctx->op.wm.src);
 
-   fclose(ctx->proc.mem);
    free(ctx->buf);
    *ctx = (struct context){0};
-}
-
-static void
-for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *data)
-{
-   char *buffer = NULL;
-   size_t step = 1024, allocated = 0, written = 0, read = 0;
-   do {
-      if (written + read >= allocated && !(buffer = realloc(buffer, (allocated += step) + 1)))
-         err(EXIT_FAILURE, "realloc");
-      buffer[(written += read)] = 0;
-      size_t ate = 0;
-      for (char *line = buffer, *nl; (nl = strchr(line, '\n')); line = nl + 1) {
-         *nl = 0;
-         cb(line, data);
-         ate += nl + 1 - line;
-      }
-      memmove(buffer, buffer + ate, (written = written - ate));
-   } while ((read = fread(buffer + written, 1, allocated - written, f)));
-   free(buffer);
 }
 
 static void
@@ -159,22 +123,12 @@ region_cb(const char *line, void *data)
    if (!(ctx->buf = realloc(ctx->buf, len)))
       err(EXIT_FAILURE, "realloc");
 
-   clearerr(ctx->proc.mem);
    if (ctx->op.mode == MODE_MAP || ctx->op.mode == MODE_WRITE) {
       if (fseek(ctx->op.wm.src, region_offset, SEEK_SET) != 0)
          err(EXIT_FAILURE, "fseek");
 
       const size_t rd = fread(ctx->buf, 1, len, ctx->op.wm.src);
-
-      if (fseek(ctx->proc.mem, start, SEEK_SET) != 0)
-         err(EXIT_FAILURE, "fseek");
-
-      const size_t wd = fwrite(ctx->buf, 1, rd, ctx->proc.mem);
-
-      if (ferror(ctx->proc.mem)) {
-         warn("fread(/proc/%u/mem)", ctx->proc.pid);
-         return;
-      }
+      const size_t wd = ctx->io.write(&ctx->io, ctx->buf, start, rd);
 
       if (ctx->op.mode == MODE_WRITE) {
          if (rlen > wd) {
@@ -190,36 +144,51 @@ region_cb(const char *line, void *data)
          }
       }
    } else {
-      if (fseek(ctx->proc.mem, start, SEEK_SET) != 0)
-         err(EXIT_FAILURE, "fseek");
-
-      const size_t rd = fread(ctx->buf, 1, len, ctx->proc.mem);
-
-      if (ferror(ctx->proc.mem))
-         warn("fread(/proc/%u/mem)", ctx->proc.pid);
+      const size_t rd = ctx->io.read(&ctx->io, ctx->buf, start, len);
 
       if (fwrite(ctx->buf, 1, rd, stdout) != rd)
          err(EXIT_FAILURE, "fwrite");
    }
 }
 
-int
-main(int argc, const char *argv[])
+static inline void
+for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *data)
 {
+   char *buffer = NULL;
+   size_t step = 1024, allocated = 0, written = 0, read = 0;
+   do {
+      if (written + read >= allocated && !(buffer = realloc(buffer, (allocated += step) + 1)))
+         err(EXIT_FAILURE, "realloc");
+
+      buffer[(written += read)] = 0;
+
+      size_t ate = 0;
+      for (char *line = buffer, *nl; (nl = strchr(line, '\n')); line = nl + 1) {
+         *nl = 0;
+         cb(line, data);
+         ate += nl + 1 - line;
+      }
+
+      memmove(buffer, buffer + ate, (written = written - ate));
+   } while ((read = fread(buffer + written, 1, allocated - written, f)));
+   free(buffer);
+}
+
+int
+proc_region_rw(int argc, const char *argv[], bool (*io_init)(struct io*, const pid_t))
+{
+   if (argc < 3)
+      usage(argv[0]);
+
+   const pid_t pid = strtoull(argv[1], NULL, 10);
    struct context ctx;
-   context_init(&ctx, argc, argv);
+   context_init(&ctx, argc - 2, argv + 2);
 
-   if (ptrace(PTRACE_ATTACH, ctx.proc.pid, NULL, NULL) == -1L)
-      err(EXIT_FAILURE, "ptrace(PTRACE_ATTACH, %u, NULL, NULL)", ctx.proc.pid);
-
-   {
-      int status;
-      if (waitpid(ctx.proc.pid, &status, 0) == -1 || !WIFSTOPPED(status))
-         err(EXIT_FAILURE, "waitpid");
-   }
+   if (!io_init(&ctx.io, pid))
+       return EXIT_FAILURE;
 
    for_each_line_in_file(stdin, region_cb, &ctx);
-   ptrace(PTRACE_DETACH, ctx.proc.pid, 1, 0);
+   io_release(&ctx.io);
    context_release(&ctx);
    return EXIT_SUCCESS;
 }

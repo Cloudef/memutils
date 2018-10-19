@@ -5,7 +5,7 @@
 while read -r region; do
    offset=$(printf '%d' "0x$(awk '{print $3}' <<<"$region")")
    if ((offset == 0)); then
-      offset=$(binsearch <(proc-region-rw "$1" read <<<"$region" 2>/dev/null | bintrim) $3 < "$2")
+      offset=$(binsearch <(ptrace-region-rw "$1" read <<<"$region" 2>/dev/null | bintrim) $3 < "$2")
       if [[ -n "$offset" ]]; then
          hex=$(printf '%.8x' "$offset")
          awk '{printf "%s %s %s %s %s %s\n", $1, $2, "'"$hex"'", $4, $5, $6, $7}' <<<"$region"
