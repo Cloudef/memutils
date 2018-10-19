@@ -6,6 +6,8 @@
 #include <sys/wait.h>
 #include <err.h>
 
+// It's recommended to `setcap cap_sys_ptrace=eip proc-region-rw` to run this tool without sudo
+
 struct context {
    void *buf;
 
