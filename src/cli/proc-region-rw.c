@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <err.h>
+#include "io/io.h"
 
 static void
 usage(const char *argv0)
@@ -12,8 +13,6 @@ usage(const char *argv0)
                    "       regions must be in /proc/<pid>/maps format", argv0, argv0, argv0);
    exit(EXIT_FAILURE);
 }
-
-#include "io/io.h"
 
 struct context {
    void *buf;
