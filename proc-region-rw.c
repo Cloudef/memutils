@@ -52,7 +52,7 @@ context_init(struct context *ctx, size_t argc, const char *argv[])
    ctx->proc.pid = strtoull(argv[arg++], NULL, 10);
 
    {
-      bool w = false, r = false, m = false;
+      bool m = false, w = false, r = false;
       const char *mode = argv[arg++];
       if (!(m = !strcmp(mode, "map")) && !(w = !strcmp(mode, "write")) && !(r = !strcmp(mode, "read")))
          errx(EXIT_FAILURE, "mode must be write or read");
