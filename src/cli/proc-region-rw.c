@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <err.h>
 #include "io/io.h"
+#include "util.h"
 
 static void
 usage(const char *argv0)
@@ -94,27 +94,26 @@ static void
 region_cb(const char *line, void *data)
 {
    struct context *ctx = data;
-   unsigned long start, end, region_offset;
-   if (sscanf(line, "%lx-%lx %*s %lx", &start, &end, &region_offset) < 3) {
-      warnx("failed to parse mapping:\n%s", line);
-      return;
-   }
+
+   struct region region;
+   if (!region_parse(&region, line))
+       return;
 
    warnx("%s", line);
-   start += ctx->op.offset;
+   region.start += ctx->op.offset;
 
-   if (start > end) {
-      warnx("write offset %lx is out of bounds", start);
+   if (region.start > region.end) {
+      warnx("write offset 0x%zx is out of bounds", region.start);
       return;
    }
 
-   region_offset = (ctx->op.mode == MODE_MAP ? region_offset : 0);
+   region.offset = (ctx->op.mode == MODE_MAP ? region.offset : 0);
 
    // requested write/read
-   const size_t rlen = (ctx->op.has_len ? ctx->op.len : (ctx->op.mode == MODE_READ ? end - start : ctx->op.wm.size));
+   const size_t rlen = (ctx->op.has_len ? ctx->op.len : (ctx->op.mode == MODE_READ ? region.end - region.start : ctx->op.wm.size));
 
    // actual write/read
-   const size_t len = (rlen > end - start ? end - start : rlen);
+   const size_t len = (rlen > region.end - region.start ? region.end - region.start : rlen);
 
    if (!len)
       return;
@@ -123,54 +122,31 @@ region_cb(const char *line, void *data)
       err(EXIT_FAILURE, "realloc");
 
    if (ctx->op.mode == MODE_MAP || ctx->op.mode == MODE_WRITE) {
-      if (fseek(ctx->op.wm.src, region_offset, SEEK_SET) != 0)
+      if (fseek(ctx->op.wm.src, region.offset, SEEK_SET) != 0)
          err(EXIT_FAILURE, "fseek");
 
       const size_t rd = fread(ctx->buf, 1, len, ctx->op.wm.src);
-      const size_t wd = ctx->io.write(&ctx->io, ctx->buf, start, rd);
+      const size_t wd = ctx->io.write(&ctx->io, ctx->buf, region.start, rd);
 
       if (ctx->op.mode == MODE_WRITE) {
          if (rlen > wd) {
-            warnx("wrote %lu bytes (%lu bytes truncated) to offset 0x%lx", wd, rlen - wd, start);
+            warnx("wrote %zu bytes (%zu bytes truncated) to offset 0x%zx", wd, rlen - wd, region.start);
          } else {
-            warnx("wrote %lu bytes to offset 0x%lx", wd, start);
+            warnx("wrote %zu bytes to offset 0x%zx", wd, region.start);
          }
       } else {
          if (rlen > wd) {
-            warnx("mapped %lu bytes (%lu bytes truncated) from offset 0x%lx to offset 0x%lx", wd, rlen - wd, region_offset, start);
+            warnx("mapped %zu bytes (%zu bytes truncated) from offset 0x%zx to offset 0x%zx", wd, rlen - wd, region.offset, region.start);
          } else {
-            warnx("mapped %lu bytes from offset 0x%lx to offset 0x%lx", wd, region_offset, start);
+            warnx("mapped %zu bytes from offset 0x%zx to offset 0x%zx", wd, region.offset, region.start);
          }
       }
    } else {
-      const size_t rd = ctx->io.read(&ctx->io, ctx->buf, start, len);
+      const size_t rd = ctx->io.read(&ctx->io, ctx->buf, region.start, len);
 
       if (fwrite(ctx->buf, 1, rd, stdout) != rd)
          err(EXIT_FAILURE, "fwrite");
    }
-}
-
-static inline void
-for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *data)
-{
-   char *buffer = NULL;
-   size_t step = 1024, allocated = 0, written = 0, read = 0;
-   do {
-      if (written + read >= allocated && !(buffer = realloc(buffer, (allocated += step) + 1)))
-         err(EXIT_FAILURE, "realloc");
-
-      buffer[(written += read)] = 0;
-
-      size_t ate = 0;
-      for (char *line = buffer, *nl; (nl = strchr(line, '\n')); line = nl + 1) {
-         *nl = 0;
-         cb(line, data);
-         ate += nl + 1 - line;
-      }
-
-      memmove(buffer, buffer + ate, (written = written - ate));
-   } while ((read = fread(buffer + written, 1, allocated - written, f)));
-   free(buffer);
 }
 
 int
