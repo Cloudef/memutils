@@ -10,7 +10,7 @@ override CFLAGS ?= -g
 override CFLAGS += -std=c99 $(WARNINGS)
 override CPPFLAGS += -Isrc
 
-bins = ptrace-region-rw ptrace-address-rw uio-region-rw uio-address-rw binsearch bintrim
+bins = ptrace-region-rw ptrace-address-rw uio-region-rw uio-address-rw memview binsearch bintrim
 all: $(bins)
 
 %.a:
@@ -31,6 +31,7 @@ ptrace-region-rw: src/ptrace-region-rw.c proc-region-rw.a memio-ptrace.a memio-s
 uio-address-rw: src/uio-address-rw.c proc-address-rw.a memio-uio.a memio-stream.a
 uio-region-rw: src/uio-region-rw.c proc-region-rw.a memio-uio.a memio-stream.a
 
+memview: src/memview.c src/util.h memio-uio.a
 binsearch: src/binsearch.c src/util.h
 bintrim: src/bintrim.c src/util.h
 
