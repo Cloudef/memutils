@@ -33,7 +33,8 @@ static inline void
 for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *data)
 {
    char *buffer = NULL;
-   size_t step = 1024, allocated = 0, written = 0, read = 0;
+   const size_t step = 1024;
+   size_t allocated = 0, written = 0, read = 0;
    do {
       if (written + read >= allocated && !(buffer = realloc(buffer, (allocated += step) + 1)))
          err(EXIT_FAILURE, "realloc");
