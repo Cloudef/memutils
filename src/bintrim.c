@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <util.h>
 #include <err.h>
 
 int
@@ -10,7 +11,7 @@ main(int argc, const char *argv[])
    unsigned char trim = 0;
 
    if (argc > 1)
-      trim = strtoul(argv[1], NULL, 10);
+      trim = hexdecstrtoull(argv[1], NULL);
 
    bool leading = true;
    size_t rd, out_sz = 0, out_allocated = 0;
