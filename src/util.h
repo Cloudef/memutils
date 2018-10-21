@@ -49,5 +49,9 @@ for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *d
 
       memmove(buffer, buffer + ate, (written = written - ate));
    } while ((read = fread(buffer + written, 1, allocated - written, f)));
+
+   if (written > 0)
+      cb(buffer, data);
+
    free(buffer);
 }
