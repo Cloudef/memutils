@@ -2,6 +2,18 @@
 
 #include <err.h>
 
+static inline bool
+is_hex(const char *str)
+{
+   return (strlen(str) > 2 && str[0] == '0' && str[1] == 'x');
+}
+
+static inline unsigned long long int
+hexdecstrtoull(const char *str, char **endptr)
+{
+   return strtoull(str, endptr, (is_hex(str) ? 16 : 10));
+}
+
 struct region {
    size_t start, end, offset;
 };

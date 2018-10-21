@@ -5,7 +5,7 @@
 #include <sys/wait.h>
 
 static size_t
-io_ptrace_do(const struct io *io, void *ptr, const size_t offset, const size_t size, size_t (*iofun)(void*, size_t, size_t, FILE*))
+mem_io_ptrace_do(const struct mem_io *io, void *ptr, const size_t offset, const size_t size, size_t (*iofun)(void*, size_t, size_t, FILE*))
 {
    if (fseek(io->backing, offset, SEEK_SET) != 0) {
       warn("fseek(/proc/%u/mem, %zu)", io->pid, offset);
@@ -16,10 +16,10 @@ io_ptrace_do(const struct io *io, void *ptr, const size_t offset, const size_t s
 }
 
 static size_t
-io_ptrace_write(const struct io *io, const void *ptr, const size_t offset, const size_t size)
+mem_io_ptrace_write(const struct mem_io *io, const void *ptr, const size_t offset, const size_t size)
 {
    clearerr(io->backing);
-   const size_t ret = io_ptrace_do(io, (void*)ptr, offset, size, (size_t(*)())fwrite);
+   const size_t ret = mem_io_ptrace_do(io, (void*)ptr, offset, size, (size_t(*)())fwrite);
 
    if (ferror(io->backing))
       warn("fwrite(/proc/%u/mem)", io->pid);
@@ -28,10 +28,10 @@ io_ptrace_write(const struct io *io, const void *ptr, const size_t offset, const
 }
 
 static size_t
-io_ptrace_read(const struct io *io, void *ptr, const size_t offset, const size_t size)
+mem_io_ptrace_read(const struct mem_io *io, void *ptr, const size_t offset, const size_t size)
 {
    clearerr(io->backing);
-   const size_t ret = io_ptrace_do(io, ptr, offset, size, fread);
+   const size_t ret = mem_io_ptrace_do(io, ptr, offset, size, fread);
 
    if (ferror(io->backing))
       warn("fread(/proc/%u/mem)", io->pid);
@@ -40,7 +40,7 @@ io_ptrace_read(const struct io *io, void *ptr, const size_t offset, const size_t
 }
 
 static void
-io_ptrace_cleanup(struct io *io)
+mem_io_ptrace_cleanup(struct mem_io *io)
 {
    if (io->backing)
       fclose(io->backing);
@@ -50,9 +50,14 @@ io_ptrace_cleanup(struct io *io)
 }
 
 bool
-io_ptrace_init(struct io *io, const pid_t pid)
+mem_io_ptrace_init(struct mem_io *io, const pid_t pid)
 {
-   *io = (struct io){ .pid = pid, .read = io_ptrace_read, .write = io_ptrace_write, .cleanup = io_ptrace_cleanup };
+   *io = (struct mem_io){
+      .pid = pid,
+      .read = mem_io_ptrace_read,
+      .write = mem_io_ptrace_write,
+      .cleanup = mem_io_ptrace_cleanup
+   };
 
    if (ptrace(PTRACE_ATTACH, pid, NULL, NULL) == -1L) {
       warn("ptrace(PTRACE_ATTACH, %u, NULL, NULL)", pid);

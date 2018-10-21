@@ -10,15 +10,18 @@ override CFLAGS ?= -g
 override CFLAGS += -std=c99 $(WARNINGS)
 override CPPFLAGS += -Isrc
 
-bins = ptrace-region-rw uio-region-rw binsearch bintrim
+bins = ptrace-region-rw ptrace-address-rw uio-region-rw uio-address-rw binsearch bintrim
 all: $(bins)
 
 $(bins): %:
 	$(LINK.c) $^ $(LDLIBS) -o $@
 
-ptrace-region-rw: src/ptrace-region-rw.c src/cli/proc-region-rw.c src/io/io-ptrace.c
+ptrace-address-rw: src/ptrace-address-rw.c src/cli/proc-address-rw.c src/mem/io-ptrace.c src/mem/io-stream.c
+ptrace-region-rw: src/ptrace-region-rw.c src/cli/proc-region-rw.c src/mem/io-ptrace.c src/mem/io-stream.c
 uio-region-rw: private CPPFLAGS += -D_GNU_SOURCE
-uio-region-rw: src/uio-region-rw.c src/cli/proc-region-rw.c src/io/io-uio.c
+uio-region-rw: src/uio-region-rw.c src/cli/proc-region-rw.c src/mem/io-uio.c src/mem/io-stream.c
+uio-address-rw: private CPPFLAGS += -D_GNU_SOURCE
+uio-address-rw: src/uio-address-rw.c src/cli/proc-address-rw.c src/mem/io-uio.c src/mem/io-stream.c
 binsearch: src/binsearch.c
 bintrim: src/bintrim.c
 
