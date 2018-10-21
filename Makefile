@@ -13,17 +13,26 @@ override CPPFLAGS += -Isrc
 bins = ptrace-region-rw ptrace-address-rw uio-region-rw uio-address-rw binsearch bintrim
 all: $(bins)
 
-$(bins): %:
-	$(LINK.c) $^ $(LDLIBS) -o $@
+%.a:
+	$(LINK.c) -c $(filter %.c,$^) $(LDLIBS) -o $@
 
-ptrace-address-rw: src/ptrace-address-rw.c src/cli/proc-address-rw.c src/mem/io-ptrace.c src/mem/io-stream.c
-ptrace-region-rw: src/ptrace-region-rw.c src/cli/proc-region-rw.c src/mem/io-ptrace.c src/mem/io-stream.c
-uio-region-rw: private CPPFLAGS += -D_GNU_SOURCE
-uio-region-rw: src/uio-region-rw.c src/cli/proc-region-rw.c src/mem/io-uio.c src/mem/io-stream.c
-uio-address-rw: private CPPFLAGS += -D_GNU_SOURCE
-uio-address-rw: src/uio-address-rw.c src/cli/proc-address-rw.c src/mem/io-uio.c src/mem/io-stream.c
-binsearch: src/binsearch.c
-bintrim: src/bintrim.c
+$(bins): %:
+	$(LINK.c) $(filter %.c %.a,$^) $(LDLIBS) -o $@
+
+memio-ptrace.a: src/mem/io-ptrace.c src/mem/io.h
+memio-uio.a: private CPPFLAGS += -D_GNU_SOURCE
+memio-uio.a: src/mem/io-uio.c src/mem/io.h
+memio-stream.a: src/mem/io-stream.c src/mem/io-stream.h
+
+proc-address-rw.a: src/cli/proc-address-rw.c src/cli/cli.h src/util.h
+proc-region-rw.a: src/cli/proc-region-rw.c src/cli/cli.h src/util.h
+ptrace-address-rw: src/ptrace-address-rw.c proc-address-rw.a memio-ptrace.a memio-stream.a
+ptrace-region-rw: src/ptrace-region-rw.c proc-region-rw.a memio-ptrace.a memio-stream.a
+uio-address-rw: src/uio-address-rw.c proc-address-rw.a memio-uio.a memio-stream.a
+uio-region-rw: src/uio-region-rw.c proc-region-rw.a memio-uio.a memio-stream.a
+
+binsearch: src/binsearch.c src/util.h
+bintrim: src/bintrim.c src/util.h
 
 install-bin: $(bins)
 	install -Dm755 $^ -t "$(DESTDIR)$(PREFIX)$(bindir)"
@@ -31,6 +40,6 @@ install-bin: $(bins)
 install: install-bin
 
 clean:
-	$(RM) $(bins)
+	$(RM) $(bins) *.a
 
 .PHONY: all clean install
