@@ -26,6 +26,7 @@ region_parse(struct region *region, const char *line)
       warnx("failed to parse mapping:\n%s", line);
       return false;
    }
+   region->end = (region->end > 0 ? region->end - 1 : 0);
    return true;
 }
 
