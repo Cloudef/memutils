@@ -153,7 +153,7 @@ proc_region_rw(int argc, const char *argv[], bool (*mem_io_init)(struct mem_io*,
    if (!mem_io_init(&ctx.io, pid))
        return EXIT_FAILURE;
 
-   for_each_line_in_file(ctx.regions, region_cb, &ctx);
+   for_each_token_in_file(ctx.regions, '\n', region_cb, &ctx);
    const size_t trw = ctx.trw;
 
    mem_io_release(&ctx.io);

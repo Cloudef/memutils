@@ -29,8 +29,21 @@ region_parse(struct region *region, const char *line)
    return true;
 }
 
+static inline size_t
+for_each_token_in_str(const char *str, const char token, void (*cb)(const char *line, void *data), void *data)
+{
+   size_t ate = 0;
+   for (char *line = (char*)str, *nl; (nl = strchr(line, token)); line = nl + 1) {
+      *nl = 0;
+      cb(line, data);
+      *nl = token;
+      ate += nl + 1 - line;
+   }
+   return ate;
+}
+
 static inline void
-for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *data)
+for_each_token_in_file(FILE *f, const char token, void (*cb)(const char *line, void *data), void *data)
 {
    char *buffer = NULL;
    const size_t step = 1024;
@@ -40,14 +53,7 @@ for_each_line_in_file(FILE *f, void (*cb)(const char *line, void *data), void *d
          err(EXIT_FAILURE, "realloc");
 
       buffer[(written += read)] = 0;
-
-      size_t ate = 0;
-      for (char *line = buffer, *nl; (nl = strchr(line, '\n')); line = nl + 1) {
-         *nl = 0;
-         cb(line, data);
-         ate += nl + 1 - line;
-      }
-
+      const size_t ate = for_each_token_in_str(buffer, token, cb, data);
       memmove(buffer, buffer + ate, (written = written - ate));
    } while ((read = fread(buffer + written, 1, allocated - written, f)));
 
