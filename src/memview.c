@@ -164,13 +164,19 @@ bytes_fits_screen(void)
 }
 
 static void
+screen_vprintf(const char *fmt, va_list ap)
+{
+   ctx.screen.pointer += vsnprintf(ctx.screen.buffer + ctx.screen.pointer, ctx.screen.size - ctx.screen.pointer, fmt, ap);
+   ctx.screen.pointer = (ctx.screen.pointer > ctx.screen.size ? ctx.screen.size : ctx.screen.pointer);
+}
+
+static void
 __attribute__((format(printf, 1, 2)))
 screen_printf(const char *fmt, ...)
 {
    va_list ap;
    va_start(ap, fmt);
-   ctx.screen.pointer += vsnprintf(ctx.screen.buffer + ctx.screen.pointer, ctx.screen.size - ctx.screen.pointer, fmt, ap);
-   ctx.screen.pointer = (ctx.screen.pointer > ctx.screen.size ? ctx.screen.size : ctx.screen.pointer);
+   screen_vprintf(fmt, ap);
    va_end(ap);
 }
 
@@ -473,6 +479,19 @@ navigate(int arg)
    }
 }
 
+static void
+__attribute__((format(printf, 1, 2)))
+error(const char *fmt, ...)
+{
+   screen_cursor(0, ctx.term.ws.h);
+   screen_print(ESCA CLEAR_LINE);
+   screen_print(FMT(FG RED) "error: " FMT(PLAIN));
+   va_list ap; va_start(ap, fmt); screen_vprintf(fmt, ap); va_end(ap);
+   screen_flush();
+   for (char input; input != 0x04 && input != 0x1b && input != '\n';)
+      fread(&input, 1, 1, TERM_STREAM);
+}
+
 static const char*
 input(const char *prompt)
 {
@@ -511,12 +530,20 @@ goto_offset(int arg)
    if (!(v = input("offset:")))
       return;
 
+   char *invalid;
+   const size_t ret = hexdecstrtoull(v, &invalid);
+
+   if (*invalid != 0) {
+      error("invalid offset `%s`", v);
+      return;
+   }
+
    if (v[0] == '+') {
-      ctx.hexview.offset += hexdecstrtoull(v, NULL);
+      ctx.hexview.offset += ret;
    } else if (v[0] == '-') {
-      ctx.hexview.offset -= hexdecstrtoull(v, NULL);
+      ctx.hexview.offset -= ret;
    } else {
-      ctx.hexview.offset = hexdecstrtoull(v, NULL);
+      ctx.hexview.offset = ret;
    }
 }
 
