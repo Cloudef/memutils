@@ -164,9 +164,12 @@ bytes_fits_screen(void)
 }
 
 static void
-screen_vprintf(const char *fmt, va_list ap)
+screen_vnprintf(const size_t len, const char *fmt, va_list ap)
 {
-   ctx.screen.pointer += vsnprintf(ctx.screen.buffer + ctx.screen.pointer, ctx.screen.size - ctx.screen.pointer, fmt, ap);
+   const size_t rlen = (len < (size_t)~0 ? len + 1 : len);
+   size_t mlen = ctx.screen.size - ctx.screen.pointer; mlen = (mlen > rlen ? rlen : mlen);
+   const size_t most = vsnprintf(ctx.screen.buffer + ctx.screen.pointer, mlen, fmt, ap);
+   ctx.screen.pointer += (most > mlen ? mlen : most);
    ctx.screen.pointer = (ctx.screen.pointer > ctx.screen.size ? ctx.screen.size : ctx.screen.pointer);
 }
 
@@ -176,17 +179,33 @@ screen_printf(const char *fmt, ...)
 {
    va_list ap;
    va_start(ap, fmt);
-   screen_vprintf(fmt, ap);
+   screen_vnprintf((size_t)~0, fmt, ap);
    va_end(ap);
+}
+
+static void
+__attribute__((format(printf, 2, 3)))
+screen_nprintf(const size_t len, const char *fmt, ...)
+{
+   va_list ap;
+   va_start(ap, fmt);
+   screen_vnprintf(len, fmt, ap);
+   va_end(ap);
+}
+
+static void
+screen_nprint(const size_t len, const char *str)
+{
+   size_t slen = strlen(str); slen = (slen > len ? len : slen);
+   const size_t mlen = (slen < ctx.screen.size - ctx.screen.pointer ? slen : ctx.screen.size - ctx.screen.pointer);
+   memcpy(ctx.screen.buffer + ctx.screen.pointer, str, mlen);
+   ctx.screen.pointer += mlen;
 }
 
 static void
 screen_print(const char *str)
 {
-   const size_t slen = strlen(str);
-   const size_t len = (slen < ctx.screen.size - ctx.screen.pointer ? slen : ctx.screen.size - ctx.screen.pointer);
-   memcpy(ctx.screen.buffer + ctx.screen.pointer, str, len);
-   ctx.screen.pointer += len;
+   screen_nprint((size_t)~0, str);
 }
 
 static void
@@ -228,7 +247,7 @@ static size_t
 scroll_for_offset(const struct named_region *named, const size_t offset)
 {
    const size_t bw = bytes_fits_row(), bs = bytes_fits_screen();
-   const size_t active_row = (offset - named->region.start) / bw;
+   const size_t active_row = (offset - named->region.start) / (bw > 0 ? bw : 1);
    if (active_row * bw >= ctx.hexview.scroll + bs) {
       ctx.hexview.scroll = active_row * bw - (bs - bw);
    } else if (active_row * bw <= ctx.hexview.scroll) {
@@ -249,16 +268,16 @@ repaint_top_bar(const struct named_region *named)
 {
    screen_cursor(0, 0);
    screen_print(ESCA CLEAR_LINE);
-   screen_printf("%s", named->name);
+   screen_nprintf(ctx.term.ws.w, "%s", named->name);
 }
 
 static void
 draw_error(const char *line, void *data)
 {
    (void)data;
-   const size_t w = snprintf(NULL, 0, "%s", line);
+   size_t w = snprintf(NULL, 0, "%s", line); w = (w < ctx.term.ws.w ? w : ctx.term.ws.w);
    screen_cursor(ctx.term.ws.w / 2 - w / 2, ctx.term.ws.h / 2);
-   screen_printf("%s", line);
+   screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s", line);
 }
 
 static void
@@ -330,6 +349,9 @@ repaint_hexview(const struct named_region *named, const bool update)
          } else {
             screen_print((char[]){(isprint(ctx.hexview.memory[0].data[x]) ? ctx.hexview.memory[0].data[x] : '.'), 0});
          }
+
+         if (selected)
+            screen_format(FMT(PLAIN));
       }
    }
    screen_format(FMT(PLAIN));
@@ -337,7 +359,7 @@ repaint_hexview(const struct named_region *named, const bool update)
    if (!ctx.hexview.memory[0].mapped)
       screen_cursor(0, 1);
 
-   for (size_t i = 0; i < (bs - ctx.hexview.memory[0].mapped) / bw; ++i) {
+   for (size_t i = 0; bw > 0 && i < (bs - ctx.hexview.memory[0].mapped) / bw; ++i) {
       screen_cursor(0, ctx.term.cur.y + 1);
       screen_print(ESCA CLEAR_LINE);
    }
@@ -367,20 +389,22 @@ repaint_dynamic_areas(const bool full_repaint)
 
    screen_cursor(0, ctx.term.ws.h);
    screen_print(ESCA CLEAR_LINE);
-   screen_printf("%zx", ctx.hexview.offset);
+   screen_nprintf(ctx.term.ws.w, "%zx", ctx.hexview.offset);
 
    const unsigned char *seq = ctx.last_key.seq + ctx.last_key.is_csi;
    const int seq_len = ctx.last_key.i - ctx.last_key.is_csi;
    const size_t rstrlen = snprintf(NULL, 0, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
-   screen_cursor(ctx.term.ws.w - rstrlen, ctx.term.ws.h);
-   screen_printf("%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+   if (ctx.term.ws.w > rstrlen) {
+      screen_cursor(ctx.term.ws.w - rstrlen, ctx.term.ws.h);
+      screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+   }
 }
 
 static void
 repaint(void)
 {
    ctx.last_hexview.scroll = (size_t)~0; // avoid diffing
-   screen_print(ESCA TERM_CLEAR);
+   screen_print(ESCA TERM_CLEAR FMT(PLAIN));
    repaint_static_areas();
    repaint_top_bar(named_region_for_offset(ctx.hexview.offset, false));
    repaint_dynamic_areas(true);
@@ -404,7 +428,7 @@ resize(int sig)
    }
 
    ctx.screen.pointer = 0;
-   ctx.screen.size = (ctx.term.ws.w * ctx.term.ws.h) * 2; // bit extra for formatting
+   ctx.screen.size = ((ctx.term.ws.w * 2) * (ctx.term.ws.h * 2)); // bit extra for formatting
    free(ctx.screen.buffer); ctx.screen.buffer = NULL;
    if (!(ctx.screen.buffer = malloc(ctx.screen.size)))
       err(EXIT_FAILURE, "malloc");
@@ -485,8 +509,8 @@ error(const char *fmt, ...)
 {
    screen_cursor(0, ctx.term.ws.h);
    screen_print(ESCA CLEAR_LINE);
-   screen_print(FMT(FG RED) "error: " FMT(PLAIN));
-   va_list ap; va_start(ap, fmt); screen_vprintf(fmt, ap); va_end(ap);
+   screen_nprint(ctx.term.ws.w + sizeof(FMT(FG RED) FMT(PLAIN)), FMT(FG RED) "error: " FMT(PLAIN));
+   va_list ap; va_start(ap, fmt); screen_vnprintf(ctx.term.ws.w - sizeof("error:"), fmt, ap); va_end(ap);
    screen_flush();
    for (char input; input != 0x04 && input != 0x1b && input != '\n';)
       fread(&input, 1, 1, TERM_STREAM);
@@ -500,7 +524,7 @@ input(const char *prompt)
    for (unsigned char i = 0;;) {
       screen_cursor(0, ctx.term.ws.h);
       screen_print(ESCA CLEAR_LINE);
-      screen_printf(FMT(FG YELLOW) "%s" FMT(PLAIN) " %s", prompt, input);
+      screen_nprintf(ctx.term.ws.w + sizeof(FMT(FG YELLOW) FMT(PLAIN)) - 1, FMT(FG YELLOW) "%s" FMT(PLAIN) " %s", prompt, input);
       screen_flush();
       fread(input + i, 1, 1, TERM_STREAM);
       switch (input[i]) {
@@ -514,7 +538,7 @@ input(const char *prompt)
             input[i] = 0;
             goto out;
          default:
-            i += (i < sizeof(input) && (unsigned int)snprintf(NULL, 0, "%s %s", prompt, input) < ctx.term.ws.w);
+            i += (i < sizeof(input));
       }
    }
 
