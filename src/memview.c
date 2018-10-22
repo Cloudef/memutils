@@ -536,7 +536,6 @@ key_press(const struct key *key)
       { .seq = { 0x1b, '[', 'B' }, .fun = navigate, .arg = MOVE_DOWN },
       { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
       { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
-      { .seq = { '^', 'I' }, .fun = next_region, .arg = 1 },
       { .seq = { 'o' }, .fun = goto_offset },
    };
 
