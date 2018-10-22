@@ -662,6 +662,8 @@ main(int argc, char *argv[])
          continue;
 
       switch (input) {
+         case 0x04:
+            goto quit;
          case 0x18: // ^X
          case 0x1a: // ^Z
             press = (struct key){0};
@@ -692,5 +694,6 @@ main(int argc, char *argv[])
       }
    }
 
+quit:
    return EXIT_SUCCESS;
 }
