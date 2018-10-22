@@ -603,7 +603,7 @@ main(int argc, char *argv[])
    FILE *regions_file = NULL;
    if (argc > 2 && !(regions_file = fopen(argv[2], "rb"))) {
       err(EXIT_FAILURE, "fopen(%s)", argv[2]);
-   } else {
+   } else if (argc == 2) {
       char path[128];
       snprintf(path, sizeof(path), "/proc/%u/maps", pid);
       if (!(regions_file = fopen(path, "rb")))
