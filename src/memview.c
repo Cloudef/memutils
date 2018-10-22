@@ -122,8 +122,11 @@ offset_is_in_named_region(const size_t offset, const struct named_region *named)
 static const struct named_region*
 named_region_for_offset(const size_t offset, const bool set_active)
 {
+   static struct named_region unknown;
+   unknown = (struct named_region){ .region = { .start = offset, .end = offset + 1 }, .name = "unknown" };
+
    if (!ctx.num_regions)
-      return NULL;
+      return &unknown;
 
    if (offset_is_in_named_region(offset, &ctx.named[ctx.active_region]))
       return &ctx.named[ctx.active_region];
@@ -141,7 +144,7 @@ named_region_for_offset(const size_t offset, const bool set_active)
       }
    }
 
-   return NULL;
+   return &unknown;
 }
 
 static size_t
@@ -218,9 +221,6 @@ screen_flush(void)
 static size_t
 scroll_for_offset(const struct named_region *named, const size_t offset)
 {
-   if (!named)
-      return 0;
-
    const size_t bw = bytes_fits_row(), bs = bytes_fits_screen();
    const size_t active_row = (offset - named->region.start) / bw;
    if (active_row * bw >= ctx.hexview.scroll + bs) {
@@ -228,7 +228,6 @@ scroll_for_offset(const struct named_region *named, const size_t offset)
    } else if (active_row * bw <= ctx.hexview.scroll) {
       ctx.hexview.scroll = active_row * bw;
    }
-
    return ctx.hexview.scroll;
 }
 
@@ -244,11 +243,7 @@ repaint_top_bar(const struct named_region *named)
 {
    screen_cursor(0, 0);
    screen_print(ESCA CLEAR_LINE);
-   if (named) {
-      screen_printf("%s", named->name);
-   } else {
-      screen_print("no region");
-   }
+   screen_printf("%s", named->name);
 }
 
 static void
@@ -263,9 +258,6 @@ draw_error(const char *line, void *data)
 static void
 repaint_hexview(const struct named_region *named, const bool update)
 {
-   if (!named)
-      return;
-
    const size_t bs = bytes_fits_screen(), bw = bytes_fits_row();
    const size_t start = named->region.start + scroll_for_offset(named, ctx.hexview.offset), len = named->region.end - start;
    const bool scrolled = (ctx.hexview.scroll != ctx.last_hexview.scroll);
@@ -362,7 +354,7 @@ repaint_dynamic_areas(const bool full_repaint)
       ctx.last_hexview.scroll = (size_t)~0; // avoid diffing
    }
 
-   if (named && memcmp(&ctx.hexview, &ctx.last_hexview, sizeof(ctx.hexview))) {
+   if (memcmp(&ctx.hexview, &ctx.last_hexview, sizeof(ctx.hexview))) {
       repaint_hexview(named, (full_repaint || named != last_active));
       ctx.last_hexview = ctx.hexview;
    }
@@ -440,10 +432,7 @@ enum {
 static void
 navigate(int arg)
 {
-   const struct named_region *named;
-   if (!(named = named_region_for_offset(ctx.hexview.offset, true)))
-      return;
-
+   const struct named_region *named = named_region_for_offset(ctx.hexview.offset, false);
    switch (arg) {
       case MOVE_PAGE_UP: {
             const size_t bs = bytes_fits_screen();
