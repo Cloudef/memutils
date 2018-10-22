@@ -512,7 +512,7 @@ error(const char *fmt, ...)
    screen_nprint(ctx.term.ws.w + sizeof(FMT(FG RED) FMT(PLAIN)), FMT(FG RED) "error: " FMT(PLAIN));
    va_list ap; va_start(ap, fmt); screen_vnprintf(ctx.term.ws.w - sizeof("error:"), fmt, ap); va_end(ap);
    screen_flush();
-   for (char input; input != 0x04 && input != 0x1b && input != '\n';)
+   for (char input = 0; input != 0x04 && input != 0x1b && input != '\n';)
       fread(&input, 1, 1, TERM_STREAM);
 }
 
