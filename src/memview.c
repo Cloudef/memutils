@@ -473,6 +473,51 @@ navigate(int arg)
    }
 }
 
+static const char*
+input(const char *prompt)
+{
+   static char input[255];
+   memset(input, 0, sizeof(input));
+   for (unsigned char i = 0; (size_t)i + 1 < sizeof(input); i += input[i] != 0) {
+      screen_cursor(0, ctx.term.ws.h);
+      screen_print(ESCA CLEAR_LINE);
+      screen_printf(FMT(FG YELLOW) "%s" FMT(PLAIN) " %s", prompt, input);
+      screen_flush();
+      fread(input + i, 1, 1, TERM_STREAM);
+
+      switch (input[i]) {
+         case 0x7f:
+            input[(i > 0 ? --i : 0)] = 0;
+            break;
+         case 0x04:
+         case 0x1b:
+            return NULL;
+         case '\n':
+            goto out;
+      }
+   }
+
+out:
+   return input;
+}
+
+static void
+goto_offset(int arg)
+{
+   (void)arg;
+   const char *v;
+   if (!(v = input("offset:")))
+      return;
+
+   if (v[0] == '+') {
+      ctx.hexview.offset += hexdecstrtoull(v, NULL);
+   } else if (v[0] == '-') {
+      ctx.hexview.offset -= hexdecstrtoull(v, NULL);
+   } else {
+      ctx.hexview.offset = hexdecstrtoull(v, NULL);
+   }
+}
+
 static void
 key_press(const struct key *key)
 {
@@ -492,6 +537,7 @@ key_press(const struct key *key)
       { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
       { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
       { .seq = { '^', 'I' }, .fun = next_region, .arg = 1 },
+      { .seq = { 'o' }, .fun = goto_offset },
    };
 
    for (size_t i = 0; i < ARRAY_SIZE(keys); ++i) {
