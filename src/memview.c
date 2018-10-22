@@ -478,22 +478,24 @@ input(const char *prompt)
 {
    static char input[255];
    memset(input, 0, sizeof(input));
-   for (unsigned char i = 0; (size_t)i + 1 < sizeof(input); i += input[i] != 0) {
+   for (unsigned char i = 0;;) {
       screen_cursor(0, ctx.term.ws.h);
       screen_print(ESCA CLEAR_LINE);
       screen_printf(FMT(FG YELLOW) "%s" FMT(PLAIN) " %s", prompt, input);
       screen_flush();
       fread(input + i, 1, 1, TERM_STREAM);
-
       switch (input[i]) {
          case 0x7f:
-            input[(i > 0 ? --i : 0)] = 0;
+            input[(i > 0 ? i-- : 0)] = 0;
             break;
          case 0x04:
          case 0x1b:
             return NULL;
          case '\n':
+            input[i] = 0;
             goto out;
+         default:
+            i += (i < sizeof(input) && (unsigned int)snprintf(NULL, 0, "%s %s", prompt, input) < ctx.term.ws.w);
       }
    }
 
