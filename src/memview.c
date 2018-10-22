@@ -502,6 +502,7 @@ key_press(const struct key *key)
       { .seq = { 0x1b, '[', 'B' }, .fun = navigate, .arg = MOVE_DOWN },
       { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
       { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
+      { .seq = { '^', 'I' }, .fun = next_region, .arg = 1 },
    };
 
    for (size_t i = 0; i < ARRAY_SIZE(keys); ++i) {
@@ -602,12 +603,6 @@ region_cb(const char *line, void *data)
    ctx.named[ctx.num_regions++].name = name;
 }
 
-static bool
-ignored(char c)
-{
-   return (c == 0x00 || (c >= 0x07 && c <= 0x0f) || c == 0x7f);
-}
-
 int
 main(int argc, char *argv[])
 {
@@ -658,9 +653,6 @@ main(int argc, char *argv[])
       unsigned char input;
       fread(&input, 1, 1, TERM_STREAM);
 
-      if (ignored(input))
-         continue;
-
       switch (input) {
          case 0x04:
             goto quit;
@@ -683,7 +675,15 @@ main(int argc, char *argv[])
             press.is_csi = true;
             break;
          default:
-            press.seq[press.i++] = input;
+            if (input <= 31) {
+               press.seq[press.i++] = '^';
+               press.seq[press.i++] = input + 0x40;
+            } else if (input == 0x7f) {
+               press.seq[press.i++] = '^';
+               press.seq[press.i++] = '?';
+            } else {
+               press.seq[press.i++] = input;
+            }
             if (!(press.is_csi && ((input >= '0' && input <= '9') || input == ';'))) {
                key_press(&press);
                press = (struct key){0};
