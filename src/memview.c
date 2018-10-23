@@ -358,7 +358,7 @@ draw_error(const char *line, void *data)
    (void)data;
    size_t w = snprintf(NULL, 0, "%s", line); w = (w < ctx.term.ws.w ? w : ctx.term.ws.w);
    screen_cursor(ctx.term.ws.w / 2 - w / 2, ctx.term.ws.h / 2);
-   screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s", line);
+   screen_nprintf(ctx.term.ws.w - ctx.term.cur.x * (ctx.term.cur.x < ctx.term.ws.w), "%s", line);
 }
 
 static void
