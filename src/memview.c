@@ -394,7 +394,7 @@ repaint_hexview(const struct named_region *named, const bool update)
          }
 
          if (selected)
-            screen_format(FMT(BR_BG RED));
+            screen_format(FMT(REVERSE));
          else if (changed)
             screen_format(FMT(FG RED));
          else
@@ -419,7 +419,7 @@ repaint_hexview(const struct named_region *named, const bool update)
          const bool changed = (ctx.hexview.memory[0].data[x] != ctx.hexview.memory[1].data[x]);
 
          if (selected)
-            screen_format(FMT(BR_BG RED));
+            screen_format(FMT(REVERSE));
          else if (changed)
             screen_format(FMT(FG RED));
          else
