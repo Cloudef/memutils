@@ -229,23 +229,22 @@ offset_is_in_named_region(const size_t offset, const struct named_region *named)
 static const struct named_region*
 named_region_for_offset(const size_t offset, const bool set_active)
 {
-   if (offset_is_in_named_region(offset, &ctx.named[ctx.active_region]))
+   if (ctx.active_region != 0 && offset_is_in_named_region(offset, &ctx.named[ctx.active_region]))
       return &ctx.named[ctx.active_region];
 
-   for (size_t i = 1 ; ctx.active_region + i < ctx.num_regions || ctx.active_region >= i; ++i) {
+   for (size_t i = 1; ctx.active_region + i < ctx.num_regions || ctx.active_region >= i; ++i) {
       if (ctx.active_region + i < ctx.num_regions &&
           offset_is_in_named_region(offset, &ctx.named[ctx.active_region + i])) {
          ctx.active_region += i * set_active;
          return &ctx.named[ctx.active_region + i * !set_active];
       }
-      if (ctx.active_region >= i &&
+      if (ctx.active_region > i &&
           offset_is_in_named_region(offset, &ctx.named[ctx.active_region - i])) {
          ctx.active_region -= i * set_active;
          return &ctx.named[ctx.active_region - i * !set_active];
       }
    }
 
-   ctx.named[0].region = (struct region){ .start = offset, .end = offset + 1 };
    return &ctx.named[(ctx.active_region = 0)];
 }
 
@@ -528,10 +527,10 @@ repaint_dynamic_areas(const bool full_repaint)
    {
       const unsigned char *seq = ctx.last_key.seq + ctx.last_key.is_csi;
       const int seq_len = ctx.last_key.i - ctx.last_key.is_csi;
-      const size_t rstrlen = snprintf(NULL, 0, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+      const size_t rstrlen = snprintf(NULL, 0, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region, ctx.num_regions - 1);
       if (ctx.term.ws.w > rstrlen) {
          screen_cursor(ctx.term.ws.w - rstrlen, ctx.term.cur.y);
-         screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+         screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region, ctx.num_regions - 1);
       }
    }
 }
@@ -582,6 +581,7 @@ next_region(void *ptr)
       region = ctx.num_regions - ((arg * -1) - ctx.active_region);
    else
       region = (ctx.active_region + arg) % ctx.num_regions;
+   region = (!region ? (arg < 0 ? ctx.num_regions - 1 : 1) : region);
    ctx.hexview.offset = ctx.named[region].region.start;
 }
 
@@ -883,14 +883,19 @@ bits_for_region(const struct region *region)
 }
 
 static void
+grow_regions_if_needed(void)
+{
+   const size_t step = 1024;
+   if (ctx.num_regions >= ctx.allocated_regions && !(ctx.named = realloc(ctx.named, sizeof(*ctx.named) * (ctx.allocated_regions += step))))
+      err(EXIT_FAILURE, "realloc");
+}
+
+static void
 region_cb(const char *line, void *data)
 {
    (void)data;
 
-   const size_t step = 1024;
-   if (ctx.num_regions >= ctx.allocated_regions &&
-      !(ctx.named = realloc(ctx.named, sizeof(*ctx.named) * (ctx.allocated_regions += step))))
-      err(EXIT_FAILURE, "realloc");
+   grow_regions_if_needed();
 
    if (!region_parse(&ctx.named[ctx.num_regions].region, line))
        return;
@@ -931,10 +936,12 @@ main(int argc, char *argv[])
    }
 
    ctx.num_regions = 1;
+   grow_regions_if_needed();
+   ctx.named[0] = (struct named_region){ .region = { .start = 0, .end = (size_t)~0 }, .name = "unknown" };
+
    mem_io_uio_init(&ctx.io, pid);
    for_each_token_in_file(regions_file, '\n', region_cb, NULL);
    fclose(regions_file);
-   ctx.named[0] = (struct named_region){ .name = "unknown" };
    ctx.hexview.offset = ctx.named[ctx.active_region].region.start;
 
    init();
