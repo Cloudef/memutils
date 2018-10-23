@@ -152,6 +152,13 @@ static struct {
       struct { unsigned int x; unsigned int y; } cur;
    } term;
 
+   // kind of hack, lets make real action history someday
+   // but for now, I want u to work at least for offsets
+   struct {
+      size_t data[32];
+      unsigned char pointer;
+   } undo;
+
    struct {
       char data[255];
       unsigned char pointer;
@@ -200,6 +207,17 @@ hex_for_byte(unsigned char byte)
       "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"
    };
    return hex[byte];
+}
+
+static void
+store_offset(const size_t offset)
+{
+   if (ctx.undo.pointer > 0 && offset == ctx.undo.data[0])
+      return;
+
+   memmove(ctx.undo.data + 1, ctx.undo.data, ctx.undo.pointer * sizeof(ctx.undo.data[0]));
+   ctx.undo.data[0] = ctx.last_hexview.offset;
+   ctx.undo.pointer += (ctx.undo.pointer < ARRAY_SIZE(ctx.undo.data));
 }
 
 static bool
@@ -739,6 +757,8 @@ goto_offset(void *arg)
       return;
    }
 
+   store_offset(ctx.hexview.offset);
+
    if (v[0] == '+') {
       ctx.hexview.offset += ret;
    } else if (v[0] == '-') {
@@ -752,6 +772,7 @@ static void
 follow(void *arg)
 {
    (void)arg;
+   store_offset(ctx.hexview.offset);
    const union selection v = get_selection();
    switch (ctx.native_bits) {
       case 64: ctx.hexview.offset = v.u64; break;
@@ -759,6 +780,17 @@ follow(void *arg)
       case 16: ctx.hexview.offset = v.u16; break;
       case 8: ctx.hexview.offset = v.u8; break;
    }
+}
+
+static void
+undo(void *arg)
+{
+   (void)arg;
+   if (!ctx.undo.pointer)
+      return;
+
+   ctx.hexview.offset = ctx.undo.data[0];
+   memmove(ctx.undo.data, ctx.undo.data + 1, --ctx.undo.pointer * sizeof(ctx.undo.data[0]));
 }
 
 static void
@@ -923,6 +955,7 @@ main(int argc, char *argv[])
       { .seq = { 'q', 0 }, .fun = q_quit },
       { .seq = { 'o', 0 }, .fun = goto_offset },
       { .seq = { 'f', 0 }, .fun = follow },
+      { .seq = { 'u', 0 }, .fun = undo },
       { .seq = { 'w', 0 }, .fun = write_bytes },
    };
 
