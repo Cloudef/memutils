@@ -717,6 +717,13 @@ out:
 }
 
 static void
+q_quit(void *arg)
+{
+   (void)arg;
+   exit(EXIT_SUCCESS);
+}
+
+static void
 goto_offset(void *arg)
 {
    (void)arg;
@@ -913,6 +920,7 @@ main(int argc, char *argv[])
       { .seq = { 0x1b, '[', 'B', 0 }, .fun = navigate, .arg = MOVE_DOWN },
       { .seq = { 0x1b, '[', 'C', 0 }, .fun = navigate, .arg = MOVE_RIGHT },
       { .seq = { 0x1b, '[', 'D', 0 }, .fun = navigate, .arg = MOVE_LEFT },
+      { .seq = { 'q', 0 }, .fun = q_quit },
       { .seq = { 'o', 0 }, .fun = goto_offset },
       { .seq = { 'f', 0 }, .fun = follow },
       { .seq = { 'w', 0 }, .fun = write_bytes },
