@@ -211,12 +211,6 @@ offset_is_in_named_region(const size_t offset, const struct named_region *named)
 static const struct named_region*
 named_region_for_offset(const size_t offset, const bool set_active)
 {
-   static struct named_region unknown;
-   unknown = (struct named_region){ .region = { .start = offset, .end = offset + 1 }, .name = "unknown" };
-
-   if (!ctx.num_regions)
-      return &unknown;
-
    if (offset_is_in_named_region(offset, &ctx.named[ctx.active_region]))
       return &ctx.named[ctx.active_region];
 
@@ -233,7 +227,8 @@ named_region_for_offset(const size_t offset, const bool set_active)
       }
    }
 
-   return &unknown;
+   ctx.named[0].region = (struct region){ .start = offset, .end = offset + 1 };
+   return &ctx.named[(ctx.active_region = 0)];
 }
 
 static size_t
@@ -787,7 +782,7 @@ write_bytes(void *arg)
 static void
 quit(void)
 {
-   for (size_t i = 0; i < ctx.num_regions; ++i)
+   for (size_t i = 1; i < ctx.num_regions; ++i)
       free((char*)ctx.named[i].name);
 
    mem_io_release(&ctx.io);
@@ -896,9 +891,11 @@ main(int argc, char *argv[])
          err(EXIT_FAILURE, "fopen(%s)", path);
    }
 
+   ctx.num_regions = 1;
    mem_io_uio_init(&ctx.io, pid);
    for_each_token_in_file(regions_file, '\n', region_cb, NULL);
    fclose(regions_file);
+   ctx.named[0] = (struct named_region){ .name = "unknown" };
    ctx.hexview.offset = ctx.named[ctx.active_region].region.start;
 
    init();
