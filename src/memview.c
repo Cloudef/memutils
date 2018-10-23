@@ -497,21 +497,8 @@ repaint_hexview(const struct named_region *named, const bool update)
 }
 
 static void
-repaint_dynamic_areas(const bool full_repaint)
+repaint_bottom_bar(void)
 {
-   const struct named_region *last_active = &ctx.named[ctx.active_region];
-   const struct named_region *named = named_region_for_offset(ctx.hexview.offset, true);
-
-   if (named != last_active) {
-      repaint_top_bar(named);
-      ctx.last_hexview.scroll = (size_t)~0; // avoid diffing
-   }
-
-   if (memcmp(&ctx.hexview, &ctx.last_hexview, sizeof(ctx.hexview))) {
-      repaint_hexview(named, (full_repaint || named != last_active));
-      ctx.last_hexview = ctx.hexview;
-   }
-
    screen_cursor(0, ctx.term.ws.h);
    screen_print(ESCA CLEAR_LINE);
    screen_nprintf(ctx.term.ws.w, "%zx", ctx.hexview.offset);
@@ -533,6 +520,25 @@ repaint_dynamic_areas(const bool full_repaint)
          screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region, ctx.num_regions - 1);
       }
    }
+}
+
+static void
+repaint_dynamic_areas(const bool full_repaint)
+{
+   const struct named_region *last_active = &ctx.named[ctx.active_region];
+   const struct named_region *named = named_region_for_offset(ctx.hexview.offset, true);
+
+   if (named != last_active) {
+      repaint_top_bar(named);
+      ctx.last_hexview.scroll = (size_t)~0; // avoid diffing
+   }
+
+   if (memcmp(&ctx.hexview, &ctx.last_hexview, sizeof(ctx.hexview))) {
+      repaint_hexview(named, (full_repaint || named != last_active));
+      ctx.last_hexview = ctx.hexview;
+   }
+
+   repaint_bottom_bar();
 }
 
 static void
@@ -981,6 +987,7 @@ main(int argc, char *argv[])
       if (!FD_ISSET(TERM_FILENO, &set)) {
          // timeout
          repaint_hexview(named_region_for_offset(ctx.hexview.offset, false), true);
+         repaint_bottom_bar();
          screen_flush();
          continue;
       }
