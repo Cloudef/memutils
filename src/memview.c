@@ -134,7 +134,7 @@ static struct {
    size_t num_regions, allocated_regions, active_region;
 
    struct {
-      char *buffer;
+      char *data;
       const char *fmt;
       size_t pointer, size;
    } screen;
@@ -241,7 +241,7 @@ screen_vnprintf(const size_t len, const char *fmt, va_list ap)
 {
    const size_t rlen = (len < (size_t)~0 ? len + 1 : len);
    size_t mlen = ctx.screen.size - ctx.screen.pointer; mlen = (mlen > rlen ? rlen : mlen);
-   const size_t most = vsnprintf(ctx.screen.buffer + ctx.screen.pointer, mlen, fmt, ap);
+   const size_t most = vsnprintf(ctx.screen.data + ctx.screen.pointer, mlen, fmt, ap);
    ctx.screen.pointer += (most > mlen ? mlen : most);
    ctx.screen.pointer = (ctx.screen.pointer > ctx.screen.size ? ctx.screen.size : ctx.screen.pointer);
 }
@@ -271,7 +271,7 @@ screen_nprint(const size_t len, const char *str)
 {
    size_t slen = strlen(str); slen = (slen > len ? len : slen);
    const size_t mlen = (slen < ctx.screen.size - ctx.screen.pointer ? slen : ctx.screen.size - ctx.screen.pointer);
-   memcpy(ctx.screen.buffer + ctx.screen.pointer, str, mlen);
+   memcpy(ctx.screen.data + ctx.screen.pointer, str, mlen);
    ctx.screen.pointer += mlen;
 }
 
@@ -286,7 +286,7 @@ screen_putc(const char c)
 {
    if (ctx.screen.pointer >= ctx.screen.size)
       return;
-   ctx.screen.buffer[ctx.screen.pointer++] = c;
+   ctx.screen.data[ctx.screen.pointer++] = c;
 }
 
 static void
@@ -319,7 +319,7 @@ screen_fill(const unsigned int y, const char *str)
 static void
 screen_flush(void)
 {
-   fwrite(ctx.screen.buffer, 1, ctx.screen.pointer, TERM_STREAM);
+   fwrite(ctx.screen.data, 1, ctx.screen.pointer, TERM_STREAM);
    ctx.screen.pointer = 0;
    ctx.screen.fmt = FMT(PLAIN);
 }
@@ -510,8 +510,8 @@ resize(int sig)
 
    ctx.screen.pointer = 0;
    ctx.screen.size = ((ctx.term.ws.w * 2) * (ctx.term.ws.h * 2)); // bit extra for formatting
-   free(ctx.screen.buffer); ctx.screen.buffer = NULL;
-   if (!(ctx.screen.buffer = malloc(ctx.screen.size)))
+   free(ctx.screen.data); ctx.screen.data = NULL;
+   if (!(ctx.screen.data = malloc(ctx.screen.size)))
       err(EXIT_FAILURE, "malloc");
 
    repaint();
@@ -716,7 +716,7 @@ quit(void)
    for (size_t i = 0; i < ARRAY_SIZE(ctx.hexview.memory); ++i)
       free(ctx.hexview.memory[i].data);
 
-   free(ctx.screen.buffer);
+   free(ctx.screen.data);
 
    if (!memcmp(&ctx.term.initial, &ctx.term.current, sizeof(ctx.term.initial)))
       return;
