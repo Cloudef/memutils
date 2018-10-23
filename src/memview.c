@@ -56,7 +56,7 @@ usage(const char *argv0)
 }
 
 struct key {
-   unsigned char seq[6], i;
+   unsigned char seq[7], i;
    bool is_csi;
 };
 
@@ -117,7 +117,7 @@ static bool
 key_press(const struct key *key, const struct action *actions, const size_t nmemb)
 {
    for (size_t i = 0; i < nmemb; ++i) {
-      if (memcmp(actions[i].seq, key->seq, key->i))
+      if (strlen((const char*)actions[i].seq) != key->i || memcmp(actions[i].seq, key->seq, key->i))
          continue;
 
       actions[i].fun((void*)actions[i].arg);
@@ -641,9 +641,9 @@ static const char*
 input(const char *prompt)
 {
    const struct action actions[] = {
-      { .seq = { 0x1b, '[', 'C' }, .fun = input_move, .arg = MOVE_RIGHT },
-      { .seq = { 0x1b, '[', 'D' }, .fun = input_move, .arg = MOVE_LEFT },
-      { .seq = { '^', '?' }, .fun = input_erase },
+      { .seq = { 0x1b, '[', 'C', 0 }, .fun = input_move, .arg = MOVE_RIGHT },
+      { .seq = { 0x1b, '[', 'D', 0 }, .fun = input_move, .arg = MOVE_LEFT },
+      { .seq = { '^', '?', 0 }, .fun = input_erase },
    };
 
    memset(&ctx.input, 0, sizeof(ctx.input));
@@ -842,17 +842,18 @@ main(int argc, char *argv[])
    resize(0);
 
    const struct action actions[] = {
-      { .seq = { 0x1b, '[', '1', ';', '2', 'C' }, .fun = next_region, .arg = 1 },
-      { .seq = { 0x1b, '[', '1', ';', '2', 'D' }, .fun = next_region, .arg = -1 },
-      { .seq = { 0x1b, '[', '5', '~' }, .fun = navigate, .arg = MOVE_PAGE_UP },
-      { .seq = { 0x1b, '[', '6', '~' }, .fun = navigate, .arg = MOVE_PAGE_DOWN },
-      { .seq = { 0x1b, '[', 'H' }, .fun = navigate, .arg = MOVE_START },
-      { .seq = { 0x1b, '[', 'F' }, .fun = navigate, .arg = MOVE_END },
-      { .seq = { 0x1b, '[', 'A' }, .fun = navigate, .arg = MOVE_UP },
-      { .seq = { 0x1b, '[', 'B' }, .fun = navigate, .arg = MOVE_DOWN },
-      { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
-      { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
-      { .seq = { 'o' }, .fun = goto_offset },
+      { .seq = { 0x1b, '[', '1', ';', '2', 'C', 0 }, .fun = next_region, .arg = 1 },
+      { .seq = { 0x1b, '[', '1', ';', '2', 'D', 0 }, .fun = next_region, .arg = -1 },
+      { .seq = { 0x1b, '[', '5', '~', 0 }, .fun = navigate, .arg = MOVE_PAGE_UP },
+      { .seq = { 0x1b, '[', '6', '~', 0 }, .fun = navigate, .arg = MOVE_PAGE_DOWN },
+      { .seq = { 0x1b, '[', 'H', 0 }, .fun = navigate, .arg = MOVE_START },
+      { .seq = { 0x1b, '[', 'F', 0 }, .fun = navigate, .arg = MOVE_END },
+      { .seq = { 0x1b, '[', 'A', 0 }, .fun = navigate, .arg = MOVE_UP },
+      { .seq = { 0x1b, '[', 'B', 0 }, .fun = navigate, .arg = MOVE_DOWN },
+      { .seq = { 0x1b, '[', 'C', 0 }, .fun = navigate, .arg = MOVE_RIGHT },
+      { .seq = { 0x1b, '[', 'D', 0 }, .fun = navigate, .arg = MOVE_LEFT },
+      { .seq = { 'o', 0 }, .fun = goto_offset },
+      { .seq = { 'w', 0 }, .fun = write_bytes },
    };
 
    while (true) {
