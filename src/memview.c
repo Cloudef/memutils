@@ -764,6 +764,13 @@ basename(const char *path)
    return (base ? base + 1 : path);
 }
 
+static const char*
+skip_ws(const char *str)
+{
+   const size_t skipped = strspn(str, " \t\n");
+   return str + skipped;
+}
+
 static void
 region_cb(const char *line, void *data)
 {
@@ -777,10 +784,9 @@ region_cb(const char *line, void *data)
    if (!region_parse(&ctx.named[ctx.num_regions].region, line))
        return;
 
-   char path[255] = {0};
    int region_len_without_name = strlen(line);
-   sscanf(line, "%*s %*s %*s %*s %*s%n %254s", &region_len_without_name, path);
-   const char *base = basename(path);
+   sscanf(line, "%*s %*s %*s %*s %*s%n", &region_len_without_name);
+   const char *base = basename(skip_ws(line + region_len_without_name));
 
    char *name;
    size_t name_sz = region_len_without_name + 1 + strlen(base) + 1;
