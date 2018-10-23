@@ -472,12 +472,29 @@ repaint_dynamic_areas(const bool full_repaint)
    screen_print(ESCA CLEAR_LINE);
    screen_nprintf(ctx.term.ws.w, "%zx", ctx.hexview.offset);
 
-   const unsigned char *seq = ctx.last_key.seq + ctx.last_key.is_csi;
-   const int seq_len = ctx.last_key.i - ctx.last_key.is_csi;
-   const size_t rstrlen = snprintf(NULL, 0, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
-   if (ctx.term.ws.w > rstrlen) {
-      screen_cursor(ctx.term.ws.w - rstrlen, ctx.term.ws.h);
-      screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+   {
+      union {
+         char bytes[sizeof(uint64_t)];
+         uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
+      } v = {0};
+
+      const size_t start = named->region.start + ctx.hexview.scroll, off = ctx.hexview.offset - start;
+      const size_t dsz = (off < ctx.hexview.memory[0].mapped ? ctx.hexview.memory[0].mapped - off : 0);
+      memcpy(v.bytes, ctx.hexview.memory[0].data + off, (dsz > sizeof(v.bytes) ? sizeof(v.bytes) : dsz));
+      size_t strlen = snprintf(NULL, 0, "[%u] [%u] [%u] [%lu]", v.u8, v.u16, v.u32, v.u64);
+      strlen = (strlen > ctx.term.ws.w ? ctx.term.ws.w : strlen);
+      screen_cursor(ctx.term.ws.w / 2 - strlen / 2, ctx.term.cur.y);
+      screen_nprintf(ctx.term.ws.w - ctx.term.cur.x * (ctx.term.cur.x < ctx.term.ws.w), "[%u] [%u] [%u] [%lu]", v.u8, v.u16, v.u32, v.u64);
+   }
+
+   {
+      const unsigned char *seq = ctx.last_key.seq + ctx.last_key.is_csi;
+      const int seq_len = ctx.last_key.i - ctx.last_key.is_csi;
+      const size_t rstrlen = snprintf(NULL, 0, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+      if (ctx.term.ws.w > rstrlen) {
+         screen_cursor(ctx.term.ws.w - rstrlen, ctx.term.cur.y);
+         screen_nprintf(ctx.term.ws.w - ctx.term.cur.x, "%s%.*s %zu/%zu", (ctx.last_key.is_csi ? "^[" : ""), seq_len, seq, ctx.active_region + 1, ctx.num_regions);
+      }
    }
 }
 
