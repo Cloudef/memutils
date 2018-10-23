@@ -756,7 +756,9 @@ goto_offset(void *arg)
       return;
 
    char *invalid;
-   const size_t ret = hexdecstrtoull(v, &invalid);
+   const bool is_plus = (v[0] == '+');
+   const bool is_minus = (v[0] == '-');
+   const size_t ret = hexdecstrtoull(v + (is_plus | is_minus), &invalid);
 
    if (*invalid != 0) {
       error("invalid offset `%s`", v);
@@ -765,10 +767,10 @@ goto_offset(void *arg)
 
    store_offset(ctx.hexview.offset);
 
-   if (v[0] == '+') {
+   if (is_plus) {
       ctx.hexview.offset += ret;
-   } else if (v[0] == '-') {
-      ctx.hexview.offset -= hexdecstrtoull(v + 1, NULL);
+   } else if (is_minus) {
+      ctx.hexview.offset -= ret;
    } else {
       ctx.hexview.offset = ret;
    }
