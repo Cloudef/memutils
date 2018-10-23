@@ -159,6 +159,8 @@ static struct {
 
    struct key last_key;
    struct mem_io io;
+
+   uint8_t native_bits;
 } ctx = { .hexview.octects_per_group = 1 };
 
 static const char*
@@ -248,6 +250,22 @@ bytes_fits_screen(void)
 {
    if (ctx.term.ws.h <= 3) return 0;
    return bytes_fits_row() * (ctx.term.ws.h - 3); // 3 for top and bottom bars
+}
+
+union selection {
+   char bytes[sizeof(uint64_t)];
+   uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
+};
+
+static union selection
+get_selection(void)
+{
+   union selection v = {0};
+   const struct named_region *named = named_region_for_offset(ctx.hexview.offset, false);
+   const size_t start = named->region.start + ctx.hexview.scroll, off = ctx.hexview.offset - start;
+   const size_t dsz = (off < ctx.hexview.memory[0].mapped ? ctx.hexview.memory[0].mapped - off : 0);
+   memcpy(v.bytes, ctx.hexview.memory[0].data + off, (dsz > sizeof(v.bytes) ? sizeof(v.bytes) : dsz));
+   return v;
 }
 
 static void
@@ -487,14 +505,7 @@ repaint_dynamic_areas(const bool full_repaint)
    screen_nprintf(ctx.term.ws.w, "%zx", ctx.hexview.offset);
 
    {
-      union {
-         char bytes[sizeof(uint64_t)];
-         uint8_t u8; uint16_t u16; uint32_t u32; uint64_t u64;
-      } v = {0};
-
-      const size_t start = named->region.start + ctx.hexview.scroll, off = ctx.hexview.offset - start;
-      const size_t dsz = (off < ctx.hexview.memory[0].mapped ? ctx.hexview.memory[0].mapped - off : 0);
-      memcpy(v.bytes, ctx.hexview.memory[0].data + off, (dsz > sizeof(v.bytes) ? sizeof(v.bytes) : dsz));
+      const union selection v = get_selection();
       size_t strlen = snprintf(NULL, 0, "[%u] [%u] [%u] [%lu]", v.u8, v.u16, v.u32, v.u64);
       strlen = (strlen > ctx.term.ws.w ? ctx.term.ws.w : strlen);
       screen_cursor(ctx.term.ws.w / 2 - strlen / 2, ctx.term.cur.y);
@@ -736,6 +747,19 @@ goto_offset(void *arg)
 }
 
 static void
+follow(void *arg)
+{
+   (void)arg;
+   const union selection v = get_selection();
+   switch (ctx.native_bits) {
+      case 64: ctx.hexview.offset = v.u64; break;
+      case 32: ctx.hexview.offset = v.u32; break;
+      case 16: ctx.hexview.offset = v.u16; break;
+      case 8: ctx.hexview.offset = v.u8; break;
+   }
+}
+
+static void
 write_bytes(void *arg)
 {
    (void)arg;
@@ -812,6 +836,18 @@ init(void)
    );
 }
 
+static uint8_t
+bits_for_region(const struct region *region)
+{
+   if (region->end > (uint32_t)~0)
+      return 64;
+   else if (region->end > (uint16_t)~0)
+      return 32;
+   else if (region->end > (uint8_t)~0)
+      return 16;
+   return 8;
+}
+
 static void
 region_cb(const char *line, void *data)
 {
@@ -824,6 +860,9 @@ region_cb(const char *line, void *data)
 
    if (!region_parse(&ctx.named[ctx.num_regions].region, line))
        return;
+
+   if (bits_for_region(&ctx.named[ctx.num_regions].region) > ctx.native_bits)
+      ctx.native_bits = bits_for_region(&ctx.named[ctx.num_regions].region);
 
    int region_len_without_name = strlen(line);
    sscanf(line, "%*s %*s %*s %*s %*s%n", &region_len_without_name);
@@ -878,6 +917,7 @@ main(int argc, char *argv[])
       { .seq = { 0x1b, '[', 'C', 0 }, .fun = navigate, .arg = MOVE_RIGHT },
       { .seq = { 0x1b, '[', 'D', 0 }, .fun = navigate, .arg = MOVE_LEFT },
       { .seq = { 'o', 0 }, .fun = goto_offset },
+      { .seq = { 'f', 0 }, .fun = follow },
       { .seq = { 'w', 0 }, .fun = write_bytes },
    };
 
