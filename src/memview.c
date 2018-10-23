@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
@@ -33,6 +34,7 @@
 #define MAGNETA "5"
 #define CYAN "6"
 #define WHITE "7"
+#define REVERSE "7"
 
 #define ALT_BUF "?1049"
 #define CURS "?25"
@@ -57,6 +59,72 @@ struct key {
    unsigned char seq[6], i;
    bool is_csi;
 };
+
+static bool
+get_key(struct key *key)
+{
+   while (1) {
+      unsigned char input;
+      fread(&input, 1, 1, TERM_STREAM);
+
+      switch (input) {
+         case 0x04:
+            return false;
+         case 0x18: // ^X
+         case 0x1a: // ^Z
+            *key = (struct key){0};
+            break;
+         case 0x1b: // ^[
+            *key = (struct key){0};
+            fread(&input, 1, 1, TERM_STREAM);
+            if (input != '[') {
+               key->i = 0;
+               break;
+            }
+            /* fallthrough */
+         case 0x9b: // CSI
+            *key = (struct key){0};
+            key->seq[key->i++] = 0x1b;
+            key->seq[key->i++] = '[';
+            key->is_csi = true;
+            break;
+         default:
+            if (input <= 31) {
+               key->seq[key->i++] = '^';
+               key->seq[key->i++] = input + 0x40;
+            } else if (input == 0x7f) {
+               key->seq[key->i++] = '^';
+               key->seq[key->i++] = '?';
+            } else {
+               key->seq[key->i++] = input;
+            }
+            if (!(key->is_csi && ((input >= '0' && input <= '9') || input == ';')))
+               goto out;
+            break;
+      }
+   }
+out:
+   return true;
+}
+
+struct action {
+   unsigned char seq[sizeof(((struct key*)0)->seq)];
+   void (*fun)(void *arg);
+   intptr_t arg;
+};
+
+static bool
+key_press(const struct key *key, const struct action *actions, const size_t nmemb)
+{
+   for (size_t i = 0; i < nmemb; ++i) {
+      if (memcmp(actions[i].seq, key->seq, key->i))
+         continue;
+
+      actions[i].fun((void*)actions[i].arg);
+      return true;
+   }
+   return false;
+}
 
 static struct {
    struct named_region {
@@ -83,6 +151,11 @@ static struct {
       struct { unsigned int w; unsigned int h; } ws;
       struct { unsigned int x; unsigned int y; } cur;
    } term;
+
+   struct {
+      char data[255];
+      unsigned char pointer;
+   } input;
 
    struct key last_key;
    struct mem_io io;
@@ -206,6 +279,14 @@ static void
 screen_print(const char *str)
 {
    screen_nprint((size_t)~0, str);
+}
+
+static void
+screen_putc(const char c)
+{
+   if (ctx.screen.pointer >= ctx.screen.size)
+      return;
+   ctx.screen.buffer[ctx.screen.pointer++] = c;
 }
 
 static void
@@ -438,8 +519,9 @@ resize(int sig)
 }
 
 static void
-next_region(int arg)
+next_region(void *ptr)
 {
+   intptr_t arg = (intptr_t)ptr;
    size_t region;
    if (arg < 0 && ctx.active_region < (size_t)(arg * -1))
       region = ctx.num_regions - ((arg * -1) - ctx.active_region);
@@ -460,8 +542,9 @@ enum {
 };
 
 static void
-navigate(int arg)
+navigate(void *ptr)
 {
+   intptr_t arg = (intptr_t)ptr;
    const struct named_region *named = named_region_for_offset(ctx.hexview.offset, false);
    switch (arg) {
       case MOVE_PAGE_UP: {
@@ -516,42 +599,93 @@ error(const char *fmt, ...)
       fread(&input, 1, 1, TERM_STREAM);
 }
 
+static void
+input_move(void *ptr)
+{
+   intptr_t arg = (intptr_t)ptr;
+   switch (arg) {
+      case MOVE_RIGHT:
+         ctx.input.pointer += (ctx.input.pointer < strlen(ctx.input.data));
+         break;
+      case MOVE_LEFT:
+         ctx.input.pointer -= (ctx.input.pointer > 0);
+         break;
+   };
+}
+
+static void
+input_erase(void *ptr)
+{
+   (void)ptr;
+   memmove(ctx.input.data + (ctx.input.pointer > 0 ? ctx.input.pointer - 1 : 0), ctx.input.data + ctx.input.pointer, sizeof(ctx.input.data) - ctx.input.pointer);
+   ctx.input.pointer -= (ctx.input.pointer > 0);
+}
+
 static const char*
 input(const char *prompt)
 {
-   static char input[255];
-   memset(input, 0, sizeof(input));
-   for (unsigned char i = 0;;) {
+   const struct action actions[] = {
+      { .seq = { 0x1b, '[', 'C' }, .fun = input_move, .arg = MOVE_RIGHT },
+      { .seq = { 0x1b, '[', 'D' }, .fun = input_move, .arg = MOVE_LEFT },
+      { .seq = { '^', '?' }, .fun = input_erase },
+   };
+
+   memset(&ctx.input, 0, sizeof(ctx.input));
+   while (true) {
       screen_cursor(0, ctx.term.ws.h);
-      screen_print(ESCA CLEAR_LINE);
-      screen_nprintf(ctx.term.ws.w + sizeof(FMT(FG YELLOW) FMT(PLAIN)) - 1, FMT(FG YELLOW) "%s" FMT(PLAIN) " %s", prompt, input);
+      screen_print(ESCA CLEAR_LINE FMT(FG YELLOW));
+      screen_nprintf(ctx.term.ws.w, "%s: ", prompt);
+      screen_print(FMT(PLAIN));
+
+      const size_t plen = strlen(prompt) + 2;
+      const size_t mlen = ctx.term.ws.w - plen * (ctx.term.ws.w > plen);
+      for (const char *c = ctx.input.data; c < ctx.input.data + mlen && *c; ++c) {
+         if (c == ctx.input.data + ctx.input.pointer)
+            screen_format(FMT(REVERSE));
+
+         screen_putc(*c);
+
+         if (c == ctx.input.data + ctx.input.pointer)
+            screen_format(FMT(PLAIN));
+      }
+
+      if (ctx.input.pointer >= strlen(ctx.input.data))
+         screen_print(FMT(REVERSE) " " FMT(PLAIN));
+
       screen_flush();
-      fread(input + i, 1, 1, TERM_STREAM);
-      switch (input[i]) {
-         case 0x7f:
-            input[(i > 0 ? i-- : 0)] = 0;
-            break;
-         case 0x04:
-         case 0x1b:
-            return NULL;
-         case '\n':
-            input[i] = 0;
-            goto out;
+
+      struct key key = {0};
+      if (!get_key(&key))
+         goto out;
+
+      if (key_press(&key, actions, ARRAY_SIZE(actions)))
+         continue;
+
+      if (key.i == 2 && !memcmp(key.seq, "^J", key.i))
+         goto out;
+      else if (key.i != 1)
+         continue;
+
+      switch (key.seq[0]) {
          default:
-            i += (i < sizeof(input));
+            if (strlen(ctx.input.data) < sizeof(ctx.input.data) - 1) {
+               memmove(ctx.input.data + ctx.input.pointer + 1, ctx.input.data + ctx.input.pointer, sizeof(ctx.input.data) - 1 - ctx.input.pointer);
+               ctx.input.data[ctx.input.pointer++] = key.seq[0];
+            }
+            break;
       }
    }
 
 out:
-   return input;
+   return ctx.input.data;
 }
 
 static void
-goto_offset(int arg)
+goto_offset(void *arg)
 {
    (void)arg;
    const char *v;
-   if (!(v = input("offset:")))
+   if (!(v = input("offset")))
       return;
 
    char *invalid;
@@ -565,42 +699,10 @@ goto_offset(int arg)
    if (v[0] == '+') {
       ctx.hexview.offset += ret;
    } else if (v[0] == '-') {
-      ctx.hexview.offset -= ret;
+      ctx.hexview.offset -= hexdecstrtoull(v + 1, NULL);
    } else {
       ctx.hexview.offset = ret;
    }
-}
-
-static void
-key_press(const struct key *key)
-{
-   const struct {
-      unsigned char seq[sizeof(key->seq)];
-      void (*fun)(int);
-      int arg;
-   } keys[] = {
-      { .seq = { 0x1b, '[', '1', ';', '2', 'C' }, .fun = next_region, .arg = 1 },
-      { .seq = { 0x1b, '[', '1', ';', '2', 'D' }, .fun = next_region, .arg = -1 },
-      { .seq = { 0x1b, '[', '5', '~' }, .fun = navigate, .arg = MOVE_PAGE_UP },
-      { .seq = { 0x1b, '[', '6', '~' }, .fun = navigate, .arg = MOVE_PAGE_DOWN },
-      { .seq = { 0x1b, '[', 'H' }, .fun = navigate, .arg = MOVE_START },
-      { .seq = { 0x1b, '[', 'F' }, .fun = navigate, .arg = MOVE_END },
-      { .seq = { 0x1b, '[', 'A' }, .fun = navigate, .arg = MOVE_UP },
-      { .seq = { 0x1b, '[', 'B' }, .fun = navigate, .arg = MOVE_DOWN },
-      { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
-      { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
-      { .seq = { 'o' }, .fun = goto_offset },
-   };
-
-   for (size_t i = 0; i < ARRAY_SIZE(keys); ++i) {
-      if (memcmp(keys[i].seq, key->seq, key->i))
-         continue;
-
-      keys[i].fun(keys[i].arg);
-      break;
-   }
-
-   ctx.last_key = *key;
 }
 
 static void
@@ -717,7 +819,20 @@ main(int argc, char *argv[])
    signal(SIGWINCH, resize);
    resize(0);
 
-   struct key press = {0};
+   const struct action actions[] = {
+      { .seq = { 0x1b, '[', '1', ';', '2', 'C' }, .fun = next_region, .arg = 1 },
+      { .seq = { 0x1b, '[', '1', ';', '2', 'D' }, .fun = next_region, .arg = -1 },
+      { .seq = { 0x1b, '[', '5', '~' }, .fun = navigate, .arg = MOVE_PAGE_UP },
+      { .seq = { 0x1b, '[', '6', '~' }, .fun = navigate, .arg = MOVE_PAGE_DOWN },
+      { .seq = { 0x1b, '[', 'H' }, .fun = navigate, .arg = MOVE_START },
+      { .seq = { 0x1b, '[', 'F' }, .fun = navigate, .arg = MOVE_END },
+      { .seq = { 0x1b, '[', 'A' }, .fun = navigate, .arg = MOVE_UP },
+      { .seq = { 0x1b, '[', 'B' }, .fun = navigate, .arg = MOVE_DOWN },
+      { .seq = { 0x1b, '[', 'C' }, .fun = navigate, .arg = MOVE_RIGHT },
+      { .seq = { 0x1b, '[', 'D' }, .fun = navigate, .arg = MOVE_LEFT },
+      { .seq = { 'o' }, .fun = goto_offset },
+   };
+
    while (true) {
       fd_set set;
       FD_ZERO(&set);
@@ -737,48 +852,14 @@ main(int argc, char *argv[])
          continue;
       }
 
-      unsigned char input;
-      fread(&input, 1, 1, TERM_STREAM);
+      struct key key = {0};
+      if (!get_key(&key))
+         goto quit;
 
-      switch (input) {
-         case 0x04:
-            goto quit;
-         case 0x18: // ^X
-         case 0x1a: // ^Z
-            press = (struct key){0};
-            break;
-         case 0x1b: // ^[
-            press = (struct key){0};
-            fread(&input, 1, 1, TERM_STREAM);
-            if (input != '[') {
-               press.i = 0;
-               break;
-            }
-            /* fallthrough */
-         case 0x9b: // CSI
-            press = (struct key){0};
-            press.seq[press.i++] = 0x1b;
-            press.seq[press.i++] = '[';
-            press.is_csi = true;
-            break;
-         default:
-            if (input <= 31) {
-               press.seq[press.i++] = '^';
-               press.seq[press.i++] = input + 0x40;
-            } else if (input == 0x7f) {
-               press.seq[press.i++] = '^';
-               press.seq[press.i++] = '?';
-            } else {
-               press.seq[press.i++] = input;
-            }
-            if (!(press.is_csi && ((input >= '0' && input <= '9') || input == ';'))) {
-               key_press(&press);
-               press = (struct key){0};
-               repaint_dynamic_areas(false);
-               screen_flush();
-            }
-            break;
-      }
+      key_press(&key, actions, ARRAY_SIZE(actions));
+      ctx.last_key = key;
+      repaint_dynamic_areas(false);
+      screen_flush();
    }
 
 quit:
