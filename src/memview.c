@@ -161,6 +161,20 @@ static struct {
    struct mem_io io;
 } ctx = { .hexview.octects_per_group = 1 };
 
+static const char*
+basename(const char *path)
+{
+   const char *base = strrchr(path, '/');
+   return (base ? base + 1 : path);
+}
+
+static const char*
+skip_ws(const char *str)
+{
+   const size_t skipped = strspn(str, " \t\n");
+   return str + skipped;
+}
+
 const char*
 hex_for_byte(unsigned char byte)
 {
@@ -722,6 +736,31 @@ goto_offset(void *arg)
 }
 
 static void
+write_bytes(void *arg)
+{
+   (void)arg;
+   const char *v;
+   if (!(v = input("bytes")))
+      return;
+
+   unsigned char bytes[255] = {0}, i = 0;
+   for (const char *s = skip_ws(v); i < sizeof(bytes) && *s; s += 2, s += !!isspace(*s)) {
+      unsigned int x;
+      if (!sscanf(s, "%2x", &x)) {
+         error("invalid input `%s`", v);
+         return;
+      }
+      if (i >= sizeof(bytes)) {
+         error("input is too long, sorry :( (max 255 bytes)");
+         return;
+      }
+      bytes[i++] = x;
+   }
+
+   ctx.io.write(&ctx.io, bytes, ctx.hexview.offset, i);
+}
+
+static void
 quit(void)
 {
    for (size_t i = 0; i < ctx.num_regions; ++i)
@@ -771,20 +810,6 @@ init(void)
       ESCA TERM_CLEAR
       ESCA CURS LOW
    );
-}
-
-static const char*
-basename(const char *path)
-{
-   const char *base = strrchr(path, '/');
-   return (base ? base + 1 : path);
-}
-
-static const char*
-skip_ws(const char *str)
-{
-   const size_t skipped = strspn(str, " \t\n");
-   return str + skipped;
 }
 
 static void
