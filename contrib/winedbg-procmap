@@ -5,10 +5,10 @@
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
-winedbg-share "$1" > "$tmpdir/share"
+winedbg-share "$1" | sed 's/^ *\\-PE[\t ]*//;s/^PE[\t ]*//;s/^ELF[\t ]*//;s/-/ /' > "$tmpdir/share"
 winedbg-map "$1" > "$tmpdir/map"
 
-awk '{print substr($2, 1, length($2)-1); print $3; print $5}' < "$tmpdir/share" |\
+awk '{print $1; print $2; print $4}' < "$tmpdir/share" |\
 while {
    read -r start
    read -r end
