@@ -917,7 +917,7 @@ region_cb(const char *line, void *data)
 
    char *name;
    size_t name_sz = region_len_without_name + 1 + strlen(base) + 1;
-   if (name_sz > 1 && !(name = malloc(name_sz)))
+   if (!(name = malloc(name_sz)))
       err(EXIT_FAILURE, "malloc");
 
    snprintf(name, name_sz, "%.*s %s", region_len_without_name, line, base);
