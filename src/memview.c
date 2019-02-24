@@ -51,7 +51,7 @@ static void
 usage(const char *argv0)
 {
    fprintf(stderr, "usage: %s pid [regions]\n"
-                   "       regions must be in /proc/<pid>/maps format", argv0);
+                   "       regions must be in /proc/<pid>/maps format\n", argv0);
    exit(EXIT_FAILURE);
 }
 
