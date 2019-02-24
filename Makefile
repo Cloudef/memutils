@@ -6,8 +6,9 @@ MAKEFLAGS += --no-builtin-rules
 WARNINGS := -Wall -Wextra -Wpedantic -Wformat=2 -Wstrict-aliasing=3 -Wstrict-overflow=5 -Wstack-usage=12500 \
 	-Wfloat-equal -Wcast-align -Wpointer-arith -Wchar-subscripts -Warray-bounds=2
 
-override CFLAGS ?= -g
-override CFLAGS += -std=c99 $(WARNINGS)
+override CFLAGS ?= -g -O2 $(WARNINGS)
+override CFLAGS += -std=c99
+override CPPFLAGS ?= -D_FORTIFY_SOURCE=2
 override CPPFLAGS += -Isrc
 
 bins = ptrace-region-rw ptrace-address-rw uio-region-rw uio-address-rw memview binsearch bintrim

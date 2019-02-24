@@ -65,7 +65,8 @@ get_key(struct key *key)
 {
    while (1) {
       unsigned char input;
-      fread(&input, 1, 1, TERM_STREAM);
+      if (fread(&input, 1, 1, TERM_STREAM) <= 0)
+         continue;
 
       switch (input) {
          case 0x04:
@@ -76,7 +77,8 @@ get_key(struct key *key)
             break;
          case 0x1b: // ^[
             *key = (struct key){0};
-            fread(&input, 1, 1, TERM_STREAM);
+            if (fread(&input, 1, 1, TERM_STREAM) <= 0)
+               continue;
             if (input != '[') {
                key->i = 0;
                break;
@@ -656,7 +658,7 @@ error(const char *fmt, ...)
    screen_nprint(ctx.term.ws.w + sizeof(FMT(FG RED) FMT(PLAIN)), FMT(FG RED) "error: " FMT(PLAIN));
    va_list ap; va_start(ap, fmt); screen_vnprintf(ctx.term.ws.w - sizeof("error:"), fmt, ap); va_end(ap);
    screen_flush();
-   for (char input = 0; input == 0;) fread(&input, 1, 1, TERM_STREAM);
+   for (char input = 0; input == 0;) (void)! fread(&input, 1, 1, TERM_STREAM);
 }
 
 static void
@@ -856,7 +858,9 @@ quit(void)
 static void
 init(void)
 {
-   freopen("/dev/null", "wb", stderr);
+   if (!freopen("/dev/null", "wb", stderr))
+      err(EXIT_FAILURE, "freopen");
+
    setvbuf(stderr, ctx.term.err, _IOFBF, sizeof(ctx.term.err));
    setvbuf(TERM_STREAM, NULL, _IONBF, 0);
    tcgetattr(TERM_FILENO, &ctx.term.initial);
