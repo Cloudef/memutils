@@ -737,7 +737,7 @@ input(const char *prompt)
    }
 
 out:
-   return ctx.input.data;
+   return (strlen(ctx.input.data) ? ctx.input.data : NULL);
 }
 
 static void
