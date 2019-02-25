@@ -21,7 +21,7 @@ $(bins): %:
 	$(LINK.c) $(filter %.c %.a,$^) $(LDLIBS) -o $@
 
 memio-ptrace.a: src/mem/io-ptrace.c src/mem/io.h
-memio-uio.a: private CPPFLAGS += -D_GNU_SOURCE
+memio-uio.a: private override CPPFLAGS += -D_GNU_SOURCE
 memio-uio.a: src/mem/io-uio.c src/mem/io.h
 memio-stream.a: src/mem/io-stream.c src/mem/io-stream.h
 
