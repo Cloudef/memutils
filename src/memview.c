@@ -460,7 +460,7 @@ repaint_hexview(const struct named_region *named, const bool update)
          screen_print(" ");
       }
 
-      for (size_t x = row_start; x < pointer; ++x) {
+      for (size_t x = row_start; x < row_start + bw; ++x) {
          const bool selected = (start + x == ctx.hexview.offset);
          const bool changed = (ctx.hexview.memory[0].data[x] != ctx.hexview.memory[1].data[x]);
 
