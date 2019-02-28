@@ -760,7 +760,7 @@ goto_offset(void *arg)
    char *invalid;
    const bool is_plus = (v[0] == '+');
    const bool is_minus = (v[0] == '-');
-   const size_t ret = hexdecstrtoull(v + (is_plus | is_minus), &invalid);
+   const size_t ret = hexdecstrtoull(v + (is_plus || is_minus), &invalid);
 
    if (*invalid != 0) {
       error("invalid offset `%s`", v);
